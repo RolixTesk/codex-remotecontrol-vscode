@@ -1,0 +1,24 @@
+{
+  "experiment": "same app-server native Remote registration",
+  "completed": true,
+  "childPid": 31334,
+  "initialWriterPids": [
+    31334
+  ],
+  "captureRun": "1791174681900759068-31325",
+  "before": "disabled",
+  "enableAccepted": true,
+  "states": [
+    "connecting",
+    "connected"
+  ],
+  "observedStatus": "connected",
+  "environmentRegistered": true,
+  "elapsedSeconds": 4.09,
+  "finalStatus": "disabled",
+  "restoredDisabled": true,
+  "finalWriterPids": [
+    31334
+  ],
+  "sameChild": true
+}

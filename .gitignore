@@ -1,0 +1,6 @@
+# Disposable workspace and later local captures
+experiments/baseline/*
+!experiments/baseline/README.md
+captures/
+__pycache__/
+wrapper/*.local.json

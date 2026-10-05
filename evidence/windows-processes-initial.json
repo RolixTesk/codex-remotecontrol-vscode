@@ -1,0 +1,131 @@
+{
+  "vscodeProductVersion": "1.140.0",
+  "processes": [
+    {
+      "pid": 32928,
+      "ppid": 15880,
+      "name": "wsl.exe",
+      "exe": "C:\\Windows\\system32\\wsl.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 32408,
+      "ppid": 32928,
+      "name": "wsl.exe",
+      "exe": "C:\\Program Files\\WSL\\wsl.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 30064,
+      "ppid": 15880,
+      "name": "codex.exe",
+      "exe": "C:\\Users\\RolixTesk\\AppData\\Local\\OpenAI\\Codex\\bin\\8aaf1547b825b104\\codex.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 3500,
+      "ppid": 31244,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 11152,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 31552,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 3300,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 31892,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 33924,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 35536,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 15264,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 3528,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 26252,
+      "ppid": 15264,
+      "name": "wsl.exe",
+      "exe": "C:\\Windows\\system32\\wsl.exe",
+      "extensionLaunchCommand": "wsl.exe -d Ubuntu2404LTSC --cd /mnt/d/Works/codex-remotecontrol-vscode -- /usr/bin/bash -lc \"/usr/bin/env 'PATH=/mnt/c/Users/RolixTesk/.vscode/extensions/openai.chatgpt-26.930.51102-win32-x64/bin/linux-x86_64:$PATH' RUST_LOG=warn CODEX_INTERNAL_ORIGINATOR_OVERRIDE=codex_vscode /mnt/c/Users/RolixTesk/.vscode/extensions/openai.chatgpt-26.930.51102-win32-x64/bin/linux-x86_64/codex -c features.code_mode_host=true app-server --analytics-default-enabled\""
+    },
+    {
+      "pid": 26632,
+      "ppid": 26252,
+      "name": "wsl.exe",
+      "exe": "C:\\Program Files\\WSL\\wsl.exe",
+      "extensionLaunchCommand": "wsl.exe -d Ubuntu2404LTSC --cd /mnt/d/Works/codex-remotecontrol-vscode -- /usr/bin/bash -lc \"/usr/bin/env 'PATH=/mnt/c/Users/RolixTesk/.vscode/extensions/openai.chatgpt-26.930.51102-win32-x64/bin/linux-x86_64:$PATH' RUST_LOG=warn CODEX_INTERNAL_ORIGINATOR_OVERRIDE=codex_vscode /mnt/c/Users/RolixTesk/.vscode/extensions/openai.chatgpt-26.930.51102-win32-x64/bin/linux-x86_64/codex -c features.code_mode_host=true app-server --analytics-default-enabled\""
+    },
+    {
+      "pid": 10024,
+      "ppid": 15264,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 29780,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 35520,
+      "ppid": 3500,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    },
+    {
+      "pid": 26312,
+      "ppid": 15264,
+      "name": "Code.exe",
+      "exe": "D:\\Users\\RolixTesk\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "extensionLaunchCommand": null
+    }
+  ]
+}

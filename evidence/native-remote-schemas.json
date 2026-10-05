@@ -1,0 +1,72 @@
+{
+  "RemoteControlPairingStartResponse": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "properties": {
+      "environmentId": {
+        "type": "string"
+      },
+      "expiresAt": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "manualPairingCode": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "pairingCode": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "environmentId",
+      "expiresAt",
+      "pairingCode"
+    ],
+    "title": "RemoteControlPairingStartResponse",
+    "type": "object"
+  },
+  "RemoteControlPairingStatusParams": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "properties": {
+      "manualPairingCode": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "pairingCode": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "title": "RemoteControlPairingStatusParams",
+    "type": "object"
+  },
+  "RemoteControlPairingStatusResponse": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "properties": {
+      "claimed": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "claimed"
+    ],
+    "title": "RemoteControlPairingStatusResponse",
+    "type": "object"
+  },
+  "RemoteControlPairingStartParams": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "properties": {
+      "manualCode": {
+        "type": "boolean"
+      }
+    },
+    "title": "RemoteControlPairingStartParams",
+    "type": "object"
+  }
+}

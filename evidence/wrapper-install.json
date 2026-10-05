@@ -1,0 +1,12 @@
+{
+  "installedAt": "2026-10-05T04:05:21.754232+00:00",
+  "settingPath": "/mnt/c/Users/RolixTesk/AppData/Roaming/Code/User/settings.json",
+  "originalCliExecutable": "<unset>",
+  "wrapper": "/mnt/d/Works/codex-remotecontrol-vscode/wrapper/codex-wrapper",
+  "privateBackup": "/home/rolix/.local/state/codex-remotecontrol/settings-before-wrapper-1791173121746705269.jsonc",
+  "backupSha256": "823e0efb111dfea4d18c7838aeac5cd282348c149e7134efa177c5d236c12150",
+  "settingsSha256": "b6f5d2571cdb20aca68348bde98b8c7a9094d8a50b91eafbbd4991795810740b",
+  "reloadPerformed": false,
+  "scope": "User/application",
+  "captureCwd": "/mnt/d/Works/codex-remotecontrol-vscode/experiments/baseline"
+}

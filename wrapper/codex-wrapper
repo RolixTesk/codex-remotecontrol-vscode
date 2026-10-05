@@ -1,0 +1,142 @@
+#!/usr/bin/python3
+"""Transparent transport with optional disposable-workspace request routing."""
+
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+
+def write_all(fd, data):
+    remaining = memoryview(data)
+    while remaining:
+        remaining = remaining[os.write(fd, remaining):]
+
+
+def main():
+    config = json.loads(Path(__file__).with_suffix(".local.json").read_text())
+    executable = config["realExecutable"]
+    args = sys.argv[1:]
+    try:
+        capture_here = Path.cwd().samefile(config["captureCwd"])
+    except OSError:
+        capture_here = False
+    if "app-server" not in args or not capture_here:
+        os.execv(executable, [executable, *args])
+
+    # Raw bytes stay in a private Linux directory, including possible auth traffic.
+    root = Path(config["captureRoot"])
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    run = root / f"{time.time_ns()}-{os.getpid()}"
+    run.mkdir(mode=0o700)
+    captures = {}
+    for direction in ("stdin", "stdout"):
+        fd = os.open(run / f"{direction}.bin", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        captures[direction] = fd
+    child = subprocess.Popen([executable, *args], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    metadata = {
+        "wrapperPid": os.getpid(), "childPid": child.pid,
+        "realExecutable": executable, "argv": args, "cwd": str(Path.cwd()),
+        "startedNs": time.time_ns(), "captureErrors": [],
+    }
+    metadata_path = run / "process.json"
+    metadata_fd = os.open(metadata_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(metadata_fd, "w") as f:
+        json.dump(metadata, f)
+
+    def capture(direction, data):
+        fd = captures[direction]
+        if fd is not None:
+            try:
+                write_all(fd, data)
+            except OSError as exc:
+                metadata["captureErrors"].append({"direction": direction, "errno": exc.errno})
+                os.close(fd)
+                captures[direction] = None
+
+    control = None
+    if config.get("control", False):
+        from control import Control
+
+        def write_frame(raw):
+            write_all(child.stdin.fileno(), raw)
+            capture("stdin", raw)
+
+        control = Control(run / "control.sock", Path.cwd(), child.pid, write_frame)
+
+    def forward_signal(signum, _frame):
+        try:
+            child.send_signal(signum)
+        except ProcessLookupError:
+            pass
+
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(signum, forward_signal)
+
+    def relay(source, destination, direction):
+        buffer = b""
+        try:
+            while data := os.read(source, 65536):
+                if control is None:
+                    write_all(destination, data)
+                    capture(direction, data)
+                    continue
+                if direction == "stdout":
+                    capture(direction, data)
+                buffer += data
+                lines = buffer.split(b"\n")
+                buffer = lines.pop()
+                for line in lines:
+                    raw = line + b"\n"
+                    if direction == "stdin":
+                        control.client_frame(raw)
+                    else:
+                        write_all(destination, control.server_frame(raw))
+            if buffer:
+                if direction == "stdin":
+                    control.client_frame(buffer)
+                else:
+                    write_all(destination, buffer)
+        except OSError as exc:
+            metadata["transportError"] = {"direction": direction, "errno": exc.errno}
+            try:
+                child.terminate()
+            except ProcessLookupError:
+                pass
+        finally:
+            if direction == "stdin" and control is not None:
+                control.close()
+            if captures[direction] is not None:
+                os.close(captures[direction])
+                captures[direction] = None
+
+    def stdin_relay():
+        try:
+            relay(0, child.stdin.fileno(), "stdin")
+        finally:
+            child.stdin.close()
+
+    input_thread = threading.Thread(target=stdin_relay, daemon=True)
+    input_thread.start()
+    relay(child.stdout.fileno(), 1, "stdout")
+    child.stdout.close()
+    code = child.wait()
+    if control is not None:
+        control.close()
+    metadata.update(exitCode=code, finishedNs=time.time_ns())
+    try:
+        metadata_path.write_text(json.dumps(metadata) + "\n")
+    except OSError:
+        pass
+    if code < 0:
+        signal.signal(-code, signal.SIG_DFL)
+        os.kill(os.getpid(), -code)
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

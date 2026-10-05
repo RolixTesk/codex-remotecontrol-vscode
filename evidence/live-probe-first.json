@@ -1,0 +1,15 @@
+{
+  "childPid": 31334,
+  "wrapperPid": 31325,
+  "readPassed": true,
+  "initialWriterPids": [
+    31334
+  ],
+  "captureRun": "1791174681900759068-31325",
+  "completed": false,
+  "failedStage": "wait-for-active-turn",
+  "failureType": "AssertionError",
+  "reason": "Probe selected an ephemeral internal turn, which correctly had no writer lock; assertion stopped before steering.",
+  "injectedSteerRequests": 0,
+  "injectedRemoteWriteRequests": 0
+}

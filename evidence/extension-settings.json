@@ -1,0 +1,71 @@
+{
+  "extension": "/mnt/c/Users/RolixTesk/.vscode/extensions/openai.chatgpt-26.930.51102-win32-x64",
+  "version": "26.930.51102",
+  "main": "./out/extension.js",
+  "extensionKind": null,
+  "settings": {
+    "chatgpt.commentCodeLensEnabled": {
+      "description": "Enable CodeLens above TODO comments to implement with Codex.",
+      "type": "boolean",
+      "default": true
+    },
+    "chatgpt.cliExecutable": {
+      "description": "DEVELOPMENT ONLY: Path to the Codex CLI executable. You do NOT need to set this unless you are actively developing the Codex CLI. If set this manually, parts of the extension may not work as expected.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "scope": "application",
+      "restricted": true
+    },
+    "chatgpt.openOnStartup": {
+      "description": "Focus the Codex sidebar when the extension finishes starting up.",
+      "type": "boolean",
+      "default": false
+    },
+    "chatgpt.followUpQueueMode": {
+      "description": "Control whether follow-up messages are queued or steer the current run. Press Cmd/Ctrl+Shift+Enter to do the opposite for a single in-progress follow-up.",
+      "type": "string",
+      "enum": [
+        "queue",
+        "steer",
+        "interrupt"
+      ],
+      "default": "queue"
+    },
+    "chatgpt.composerEnterBehavior": {
+      "description": "Enter behavior for the Codex composer.",
+      "type": "string",
+      "enum": [
+        "enter",
+        "cmdIfMultiline",
+        "cmdAlways"
+      ],
+      "default": "enter"
+    },
+    "chatgpt.reviewDelivery": {
+      "description": "Start /review inline in the current chat when possible or launch a separate review chat",
+      "type": "string",
+      "enum": [
+        "inline",
+        "detached"
+      ],
+      "default": "inline"
+    },
+    "chatgpt.localeOverride": {
+      "description": "Preferred language for the Codex UI. Leave empty to auto detect.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null,
+      "scope": "application"
+    },
+    "chatgpt.runCodexInWindowsSubsystemForLinux": {
+      "description": "Windows only: when Windows Subsystem for Linux (WSL) is installed, automatically run Codex inside WSL. Recommended for improved sandbox security and better performance - Agent mode on Windows currently requires WSL. Changing this setting reloads VS Code to take effect.",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

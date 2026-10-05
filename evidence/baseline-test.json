@@ -1,0 +1,62 @@
+{
+  "captured_at": "2026-10-05T04:00:33.643992+00:00",
+  "capture_timing": "after task completed; active process snapshot was not collected",
+  "thread_id": "01a10a32-56b2-7ca1-b19a-bdc80d426fa4",
+  "app_server": {
+    "pid": 21761,
+    "argv": [
+      "/mnt/c/Users/RolixTesk/.vscode/extensions/openai.chatgpt-26.930.51102-win32-x64/bin/linux-x86_64/codex",
+      "-c",
+      "features.code_mode_host=true",
+      "app-server",
+      "--analytics-default-enabled"
+    ],
+    "cwd": "/mnt/d/Works/codex-remotecontrol-vscode/experiments/baseline"
+  },
+  "writer_lock_open_fds": [
+    {
+      "pid": 21761,
+      "fd": 42
+    }
+  ],
+  "test_markers": [
+    {
+      "timestamp": "2026-10-05T03:53:54.428Z",
+      "type": "task_started",
+      "turn_id": "01a10a32-598f-7721-8745-24f96d6d7531"
+    },
+    {
+      "timestamp": "2026-10-05T03:54:04.925Z",
+      "type": "tool_output_markers",
+      "markers": [
+        "BASELINE_OK",
+        "BASELINE_RUNNING",
+        "BASELINE_DONE"
+      ],
+      "exit_zero": false
+    },
+    {
+      "timestamp": "2026-10-05T03:54:20.444Z",
+      "type": "tool_output_markers",
+      "markers": [
+        "BASELINE_OK",
+        "BASELINE_RUNNING"
+      ],
+      "exit_zero": false
+    },
+    {
+      "timestamp": "2026-10-05T03:57:08.642Z",
+      "type": "tool_output_markers",
+      "markers": [
+        "BASELINE_DONE"
+      ],
+      "exit_zero": false
+    },
+    {
+      "timestamp": "2026-10-05T03:57:30.073Z",
+      "type": "task_complete",
+      "turn_id": "01a10a32-598f-7721-8745-24f96d6d7531"
+    }
+  ],
+  "file_content": "BASELINE_OK\n"
+}
