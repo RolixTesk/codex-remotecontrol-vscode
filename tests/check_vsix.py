@@ -8,10 +8,11 @@ import sys
 from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ("extension/extension.js", "extension/backend.js", "scripts/deploy_backend.py",
-          "scripts/remote.py", "scripts/pair_remote.py", "scripts/probe_live.py",
-          "wrapper/codex-wrapper", "wrapper/control.py", "wrapper/protocol.py")
-DOCS = ("doc/README.md", "doc/commands.md")
+sys.path.insert(0, str(ROOT / "scripts"))
+from deploy_backend import FILES
+
+ASSETS = ("extension/extension.js", "extension/backend.js", "scripts/deploy_backend.py", *FILES)
+DOCS = ("doc/README.md", "doc/commands.md", "doc/development.md")
 
 
 def main():
@@ -26,7 +27,7 @@ def main():
             assert package.read("extension/" + name) == (ROOT / name).read_bytes(), f"Stale asset: {name}"
         assert package.read("extension/readme.md") == (ROOT / "README.md").read_bytes(), "Stale README"
         manifest = json.loads(package.read("extension/package.json"))
-        for key in ("name", "publisher", "version", "engines", "main", "extensionKind", "contributes", "capabilities"):
+        for key in ("name", "publisher", "version", "engines", "main", "activationEvents", "extensionKind", "contributes", "capabilities"):
             assert manifest[key] == source[key], f"Stale manifest: {key}"
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (archive.parent / "SHA256SUMS").write_text(f"{digest}  {archive.name}\n")

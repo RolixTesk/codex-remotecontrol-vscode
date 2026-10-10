@@ -23,46 +23,46 @@ async function activate(context) {
     return backend(context.extensionPath);
   }
 
-  async function project() {
-    const folders = vscode.workspace.workspaceFolders || [];
-    if (!folders.length) throw new Error('请先打开要连接的项目文件夹。');
-    const folder = folders.length === 1 ? folders[0] : (await vscode.window.showQuickPick(
-      folders.map(folder => ({ label: folder.name, description: folder.uri.fsPath, folder })),
-      { title: '选择要连接的项目' },
-    ))?.folder;
-    if (folder && !['file', 'vscode-remote'].includes(folder.uri.scheme)) throw new Error('当前项目不是可连接的本地或 WSL 文件夹。');
-    return folder;
+  async function maintain(bridge, location) {
+    const current = previousSetting();
+    if (current.value !== location.wrapper) return location;
+    const official = vscode.extensions.getExtension('openai.chatgpt');
+    if (!official) throw new Error('未找到官方 Codex 扩展。请安装后重试，或运行“恢复 Codex 启动设置（卸载前）”。');
+    const updated = await bridge.maintain(official.extensionPath, current);
+    if (updated.binaryChanged) {
+      void vscode.window.showInformationMessage('远程控制配置已更新，请在任务结束后重载窗口。');
+    }
+    return updated;
   }
 
   async function operation(action) {
-    const folder = await project();
-    if (!folder) return;
     const bridge = await getBackend();
-    const location = await bridge.info();
-    if (!location.installed) throw new Error('请先运行“Codex Remote: 启用 / 更新接入”。');
-    const cwd = await bridge.linuxPath(folder.uri.fsPath);
-    const threads = await bridge.cli(location.cli, 'list', cwd);
-    const pids = [...new Set(threads.map(thread => thread.childPid))];
-    if (!pids.length) throw new Error('此项目没有已加载的 Codex 聊天。请在官方 Codex 面板打开聊天，必要时在空闲窗口重载。');
-    const pid = pids.length === 1 ? pids[0] : (await vscode.window.showQuickPick(
-      pids.map(pid => ({ label: `Codex 进程 ${pid}`, description: threads.some(t => t.childPid === pid && t.active) ? '有任务正在运行' : '当前空闲', pid })),
-      { title: '此项目有多个会话进程，请明确选择' },
+    let location = await bridge.info();
+    if (action === 'connect' || action === 'pair') location = await maintain(bridge, location);
+    if (!location.installed) throw new Error('请先运行“Codex Remote: 配置远程控制”。');
+    const instances = await bridge.cli(location.cli, 'list');
+    if (!instances.length) throw new Error('未找到可连接的 Codex。请打开 Codex 面板后重试。');
+    const pid = instances.length === 1 ? instances[0].childPid : (await vscode.window.showQuickPick(
+      instances.map(instance => ({ label: `Codex ${instance.childPid}`, description: instance.cwd,
+        detail: instance.active ? '有任务正在运行' : '当前空闲', pid: instance.childPid })),
+      { title: '选择 Codex' },
     ))?.pid;
     if (pid === undefined) return;
-    const report = await bridge.cli(location.cli, action, cwd, pid, action === 'pair');
-    status.text = `$(device-mobile) Codex Remote：${report.status === 'connected' ? '已连接' : report.status === 'disabled' ? '未连接' : report.status}`;
-    status.tooltip = `${folder.name} · Codex PID ${pid} · 最近查询结果`;
+    const report = await bridge.cli(location.cli, action, pid, action === 'pair');
+    status.text = `$(device-mobile) Codex Remote：${report.status === 'connected' ? '已启动' : report.status === 'disabled' ? '未启动' : report.status}`;
+    status.tooltip = '点击查看远程控制状态';
     if (action === 'pair') {
       // Notification choices must not keep a completed backend operation busy.
-      void vscode.window.showInformationMessage('配对页已生成；请在手机 ChatGPT 中配对，选择此主机的同一聊天。', '打开配对页').then(async choice => {
-        if (choice === '打开配对页') {
-          const distro = bridge.distro || (folder.uri.authority?.startsWith('wsl+') ? decodeURIComponent(folder.uri.authority.slice(4)) : undefined);
+      const message = '配对页已生成；浏览器未打开时可复制网页链接。';
+      void vscode.window.showInformationMessage(message, '复制网页链接').then(async choice => {
+        if (choice === '复制网页链接') {
+          const distro = bridge.distro;
           const page = distro ? vscode.Uri.from({ scheme: 'file', authority: 'wsl.localhost', path: `/${distro}${report.pairingPage}` }) : vscode.Uri.file(report.pairingPage);
-          if (!await vscode.env.openExternal(page)) void vscode.window.showWarningMessage(`浏览器未打开，请手动打开已生成的配对页：${report.pairingPage}`);
+          await vscode.env.clipboard.writeText(page.toString());
         }
-      }).catch(error => { void vscode.window.showErrorMessage(error.message || '配对页未打开，请手动打开已生成的页面。'); });
+      }).catch(() => { void vscode.window.showErrorMessage('配对页链接未复制，请重试复制或手动打开已生成的页面。'); });
     } else if (action !== 'status') {
-      void vscode.window.showInformationMessage(`Codex Remote：${report.status === 'connected' ? '已连接' : '已断开'} ${folder.name}`);
+      void vscode.window.showInformationMessage(`远程控制${report.status === 'connected' ? '已启动' : '已停止'}。`);
     }
   }
 
@@ -76,7 +76,7 @@ async function activate(context) {
     const installed = await bridge.install(official.extensionPath, previousSetting());
     await vscode.workspace.getConfiguration('chatgpt').update('cliExecutable', installed.wrapper, vscode.ConfigurationTarget.Global);
     status.text = '$(device-mobile) Codex Remote：等待重载';
-    void vscode.window.showInformationMessage('接入已配置。请在任务结束后重载该窗口，打开 Codex 聊天，再运行“连接当前项目”。');
+    void vscode.window.showInformationMessage('配置完成。请在任务结束后重载窗口，再运行“启动远程控制”。');
   }
 
   async function restore() {
@@ -86,8 +86,8 @@ async function activate(context) {
     const current = previousSetting();
     if (current.value !== backup.managedValue) throw new Error('当前 cliExecutable 已被其他操作更改；本次未覆盖。');
     await vscode.workspace.getConfiguration('chatgpt').update('cliExecutable', backup.wasSet ? backup.value : undefined, vscode.ConfigurationTarget.Global);
-    status.text = '$(device-mobile) Codex Remote：接入配置已恢复';
-    void vscode.window.showInformationMessage('已恢复启用插件前的 CLI 配置。请在任务结束后重载窗口，再卸载插件。');
+    status.text = '$(device-mobile) Codex Remote：启动设置已恢复';
+    void vscode.window.showInformationMessage('已恢复原 Codex 启动设置。请在任务结束后重载窗口，再卸载插件。');
   }
 
   const commands = { enable, restore, connect: () => operation('connect'), pair: () => operation('pair'),
@@ -106,6 +106,18 @@ async function activate(context) {
         void vscode.window.showErrorMessage(error.message || '操作未完成，请先查询状态。');
       } finally { busy = false; }
     }));
+  }
+
+  // Startup maintenance only refreshes a still-managed installation; Remote stays unchanged.
+  if (typeof previousSetting().value === 'string' && (!vscode.env.remoteName || vscode.env.remoteName === 'wsl')
+      && (process.platform !== 'win32' || vscode.workspace.getConfiguration('chatgpt').get('runCodexInWindowsSubsystemForLinux'))) {
+    busy = true;
+    try {
+      const bridge = await getBackend();
+      await maintain(bridge, await bridge.info());
+    } catch (error) {
+      void vscode.window.showWarningMessage(`远程控制配置更新失败：${error.message} 可运行“配置远程控制”或“恢复 Codex 启动设置（卸载前）”。`);
+    } finally { busy = false; }
   }
 }
 

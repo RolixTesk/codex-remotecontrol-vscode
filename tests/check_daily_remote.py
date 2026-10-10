@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 from unittest.mock import patch
+from xml.etree import ElementTree
 
 from check_control import encoded, read_line, socket_reply, wait_for
 
@@ -160,72 +161,79 @@ def check_wrapper():
     print("PASS daily wrapper: no captureCwd/raw logs/argv; cwd/env/frames, two projects, private replies/approvals, exec fallback")
 
 
-def check_discovery():
-    with tempfile.TemporaryDirectory(prefix="codex-daily-discovery-check-") as temp:
+def check_backend_discovery():
+    with tempfile.TemporaryDirectory(prefix="codex-backend-discovery-check-") as temp:
         root = Path(temp)
-        runs, workspace, other = root / "runs", root / "project", root / "other"
-        workspace.mkdir()
-        other.mkdir()
-        alias = root / "project-alias"
-        alias.symlink_to(workspace, target_is_directory=True)
+        runs = root / "runs"
         graph = {}
-        for name, pid, meta_pid, threads in [
-            ("one", 101, 101, ["good", "other", "ephemeral", "wrong-owner", "shared-owner"]),
-            ("two", 202, 202, ["second"]), ("stale", 303, 909, ["stale"]),
-            ("dead", 404, 404, []),
+        for name, pid, meta_pid, initialized, active, cwd in [
+            ("empty", 101, 101, True, False, "/synthetic launch directory"),
+            ("busy", 202, 202, True, True, "/synthetic busy directory"),
+            ("uninitialized", 303, 303, False, False, "/synthetic launch directory"),
+            ("stale", 404, 909, True, False, "/synthetic launch directory"),
+            ("dead", 505, 505, True, False, "/synthetic launch directory"),
         ]:
             run = runs / name
             run.mkdir(parents=True)
-            (run / "control.sock").touch()
-            (run / "process.json").write_text(json.dumps({"childPid": meta_pid}))
-            graph[str(run / "control.sock")] = (pid, threads, name)
+            path = run / "control.sock"
+            path.touch()
+            meta = {"childPid": meta_pid, "cwd": cwd}
+            (run / "process.json").write_text(json.dumps(meta))
+            graph[str(path)] = (name, {"initialized": initialized, "childPid": pid,
+                                      "threads": [], "activeTurns": {"unread-thread": "turn"} if active else {}})
 
         def request(path, method, params=None):
-            pid, threads, name = graph[str(path)]
+            assert method == "status", "backend discovery queried a chat"
+            name, status = graph[str(path)]
             if name == "dead":
                 raise OSError("synthetic unavailable socket")
-            if method == "status":
-                return {"result": {"initialized": True, "childPid": pid, "threads": threads, "activeTurns": {"good": "turn"}}}
-            assert method == "thread/read"
-            tid = params["threadId"]
-            return {"result": {"thread": {"id": tid, "cwd": str(other if tid == "other" else alias), "ephemeral": tid == "ephemeral"}}}
+            return {"result": status}
 
-        owner_map = {"good": [101], "other": [101], "ephemeral": [101],
-                     "wrong-owner": [909], "shared-owner": [101, 202], "second": [202]}
-        with patch.object(remote, "call", side_effect=request) as calls, \
-                patch.object(remote, "owners", side_effect=lambda tid: owner_map.get(tid, [])):
-            found = remote.discover(runs, workspace)
-            assert [(t["childPid"], t["threadId"]) for t in found] == [(101, "good"), (202, "second")]
-            assert found[0]["active"]
+        with patch.object(remote, "call", side_effect=request):
+            found = remote.discover(runs)
+            assert {item["childPid"] for item in found} == {101, 202}
+            empty = next(item for item in found if item["childPid"] == 101)
+            assert empty == {"socket": str(runs / "empty/control.sock"), "childPid": 101,
+                             "cwd": "/synthetic launch directory", "active": False}
+            busy = next(item for item in found if item["childPid"] == 202)
+            assert busy["cwd"] == "/synthetic busy directory" and busy["active"] is True
+            assert "threadId" not in busy and "workspace" not in busy
             try:
                 remote.select(found)
             except remote.UserError as error:
                 assert "--pid" in str(error)
             else:
-                raise AssertionError("multiple owners selected implicitly")
-            assert remote.select(remote.discover(runs, workspace, 202))["threadId"] == "second"
-            assert remote.discover(runs, other)[0]["threadId"] == "other"
-            assert all(item.args[1] in ("status", "thread/read") for item in calls.call_args_list)
-    print("PASS discover: samefile workspace, unique owner, stale/dead/ephemeral rejection, explicit PID selection")
+                raise AssertionError("multiple backends selected implicitly")
+            assert remote.select(remote.discover(runs, pid=202)) == busy
+
+            (root / "wrapper").mkdir()
+            (root / "wrapper/codex-wrapper.local.json").write_text(json.dumps({"captureRoot": str(runs)}))
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with patch.object(remote, "PROJECT", root), \
+                    patch.object(remote.Path, "cwd", side_effect=AssertionError("default list inspected current directory")), \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
+                assert remote.main(["list", "--pid", "202"]) == 0
+            assert json.loads(stdout.getvalue()) == [{"childPid": 202, "cwd": "/synthetic busy directory", "active": True}]
+            assert stderr.getvalue() == ""
+    print("PASS backend discover/list: initialized process without chats, metadata/PID checks, no thread/writer reads, explicit PID, no current-directory filter")
 
 
-def operation(initial, action="connect", failure=None, other_connected=False, writer_changes=False):
+def operation(initial, action="connect", failure=None, other_connected=False, identity_change=None):
     with tempfile.TemporaryDirectory(prefix="codex-daily-operation-check-") as temp:
         root = Path(temp)
-        project, workspace, runs = root / "project", root / "workspace", root / "runs"
+        project, runs = root / "project", root / "runs"
         (project / "wrapper").mkdir(parents=True)
-        workspace.mkdir()
         path = runs / "one" / "control.sock"
         path.parent.mkdir(parents=True, mode=0o700)
         path.touch()
-        (path.parent / "process.json").write_text(json.dumps({"childPid": 101}))
+        (path.parent / "process.json").write_text(json.dumps({"childPid": 101, "cwd": str(root)}))
         (project / "wrapper/codex-wrapper.local.json").write_text(json.dumps({"captureRoot": str(runs)}))
         other_path = runs / "two" / "control.sock"
         if other_connected:
             other_path.parent.mkdir()
             other_path.touch()
-            (other_path.parent / "process.json").write_text(json.dumps({"childPid": 202}))
-        state, calls = {"status": initial, "owners": 0}, []
+            (other_path.parent / "process.json").write_text(json.dumps({"childPid": 202, "cwd": str(root)}))
+        state, calls = {"status": initial, "statusReads": 0, "enabled": False}, []
         secrets = ("SYNTHETIC_PAIRING_SECRET", "SYNTHETIC_MANUAL_SECRET", "SYNTHETIC_HOST_SECRET")
 
         def request(socket_path, method, params=None):
@@ -235,16 +243,28 @@ def operation(initial, action="connect", failure=None, other_connected=False, wr
                 return {"result": {"initialized": True, "childPid": 202, "threads": [], "activeTurns": {}} if method == "status" else {"status": "connected"}}
             assert str(socket_path) == str(path)
             if method == "status":
-                return {"result": {"initialized": True, "childPid": 101, "threads": ["thread"], "activeTurns": {}}}
-            if method == "thread/read":
-                assert params == {"threadId": "thread", "includeTurns": False}
-                return {"result": {"thread": {"id": "thread", "cwd": str(workspace), "ephemeral": False}}}
+                state["statusReads"] += 1
+                pid, initialized = 101, True
+                if identity_change is not None:
+                    stage, kind = identity_change
+                    changed = state["statusReads"] >= 2 if stage == "before" else state["enabled"]
+                    if changed:
+                        if kind == "child":
+                            pid = 909
+                        elif kind == "metadata":
+                            (path.parent / "process.json").write_text(json.dumps({"childPid": 909, "cwd": str(root)}))
+                        else:
+                            initialized = False
+                return {"result": {"initialized": initialized, "childPid": pid,
+                                   "threads": [], "activeTurns": {}}}
             if method == "remoteControl/status/read":
                 return {"result": {"status": state["status"], "serverName": secrets[2]}}
             if method in ("remoteControl/enable", "remoteControl/disable"):
                 assert params == {"ephemeral": True}
                 if method.endswith("enable") and failure == "enable":
                     raise OSError(secrets[0])
+                if method.endswith("enable"):
+                    state["enabled"] = True
                 state["status"] = "connecting" if method.endswith("enable") else "disabled"
                 return {"result": {"status": state["status"]}}
             if method == "remoteControl/pairing/start":
@@ -264,24 +284,22 @@ def operation(initial, action="connect", failure=None, other_connected=False, wr
             state["status"] = desired
             return {"status": desired, "serverName": secrets[2]}
 
-        def owners(thread):
-            assert thread == "thread"
-            state["owners"] += 1
-            return [202] if writer_changes and state["owners"] > 1 else [101]
-
         folder = path.parent / "pairing"
         if action == "status":
             folder.mkdir(mode=0o700)
             (folder / "state.json").write_text(json.dumps({"childPid": 101, "pairing": {"pairingCode": secrets[0]}}))
         stdout, stderr = io.StringIO(), io.StringIO()
         with patch.object(remote, "PROJECT", project), patch.object(remote, "call", side_effect=request), \
-                patch.object(remote, "owners", side_effect=owners), \
                 patch.object(remote, "wait_remote_status", side_effect=wait), \
-                patch.dict(sys.modules, {"qrcode": None, "qrcode.image": None, "qrcode.image.svg": None}), \
+                patch.object(remote.Path, "cwd", side_effect=AssertionError("operation inspected current directory")), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
-            code = remote.main([action, "--workspace", str(workspace), "--pid", "101"])
+            code = remote.main([action, "--pid", "101"])
         assert all(secret not in stdout.getvalue() + stderr.getvalue() for secret in secrets)
         report = json.loads(stdout.getvalue()) if stdout.getvalue() else None
+        if report is not None:
+            assert report["action"] == action and report["childPid"] == 101
+            assert not {"workspace", "cwd", "threadId"}.intersection(report)
+            assert sum(method == "status" for _, method, _ in calls) >= 3, "operation skipped before/after identity checks"
         artifacts = ({p.name: (p.stat().st_mode & 0o777, p.read_text()) for p in folder.iterdir()}
                      if folder.exists() else {})
         mode = folder.stat().st_mode & 0o777 if folder.exists() else None
@@ -292,26 +310,30 @@ def check_operations():
     for initial in ("connected", "connecting", "disabled"):
         code, report, calls, _, _, _ = operation(initial)
         assert code == 0 and report["status"] == "connected"
-        writes = [method for _, method, _ in calls if method not in ("status", "thread/read", "remoteControl/status/read")]
+        assert set(report) == {"action", "childPid", "status"}
+        writes = [method for _, method, _ in calls if method not in ("status", "remoteControl/status/read")]
         assert writes == (["remoteControl/enable"] if initial == "disabled" else [])
     code, _, calls, _, _, _ = operation("disabled", other_connected=True)
-    assert code == 1 and all(method in ("status", "thread/read", "remoteControl/status/read") for _, method, _ in calls)
+    assert code == 1 and all(method in ("status", "remoteControl/status/read") for _, method, _ in calls)
     print("PASS connect: connected/connecting reuse, disabled-only enable, other connected owner blocks switching")
 
     code, report, calls, files, mode, _ = operation("disabled", action="pair")
-    assert code == 0 and report["qrAvailable"] is False
-    assert mode == 0o700 and set(files) == {"state.json", "pairing.html"}
+    assert code == 0 and report["qrAvailable"] is True
+    assert mode == 0o700 and set(files) == {"state.json", "pairing.html", "pairing.svg"}
     assert all(file_mode == 0o600 for file_mode, _ in files.values())
     assert "SYNTHETIC_MANUAL_SECRET" in files["pairing.html"][1]
     assert "SYNTHETIC_PAIRING_SECRET" in files["state.json"][1]
-    assert "https://chatgpt.com/codex/pair?" in files["pairing.html"][1]
     code, report, calls, _, _, _ = operation("connected", action="status")
     assert code == 0 and report["pairingClaimed"] is True
-    assert all(method in ("status", "thread/read", "remoteControl/status/read", "remoteControl/pairing/status") for _, method, _ in calls)
+    assert all(method in ("status", "remoteControl/status/read", "remoteControl/pairing/status") for _, method, _ in calls)
     code, report, calls, _, _, status = operation("connected", action="disconnect")
     assert code == 0 and report["childPid"] == 101 and status == "disabled"
-    assert [method for _, method, _ in calls if method not in ("status", "thread/read", "remoteControl/status/read")] == ["remoteControl/disable"]
-    print("PASS pair/status/disconnect: private manual page without qrcode, no credential output, reads only, original writer retained")
+    assert set(report) == {"action", "childPid", "status"}
+    assert [method for _, method, _ in calls if method not in ("status", "remoteControl/status/read")] == ["remoteControl/disable"]
+    code, report, calls, _, _, status = operation("disabled", action="disconnect")
+    assert code == 0 and status == "disabled"
+    assert all(method in ("status", "remoteControl/status/read") for _, method, _ in calls)
+    print("PASS pair/status/disconnect: bundled QR/private files, no credential output, status reads only, disabled disconnect reuses state")
 
     for initial, failure, expected in [
         ("disabled", "pair", ["remoteControl/enable", "remoteControl/pairing/start", "remoteControl/disable"]),
@@ -321,12 +343,24 @@ def check_operations():
     ]:
         code, _, calls, _, _, _ = operation(initial, action="pair", failure=failure)
         assert code == 1
-        writes = [method for _, method, _ in calls if method not in ("status", "thread/read", "remoteControl/status/read")]
+        writes = [method for _, method, _ in calls if method not in ("status", "remoteControl/status/read")]
         assert writes == expected, "failure retried a write or disabled a preexisting connection"
         assert len({path for path, method, _ in calls if method in writes}) <= 1
-    code, _, calls, _, _, _ = operation("disabled", writer_changes=True)
-    assert code == 1 and all(method in ("status", "thread/read") for _, method, _ in calls)
-    print("PASS failures: only newly enabled connection restored, unknown writes never retried, changed owner refuses writes")
+    print("PASS failures: only newly enabled connection restored, unknown writes never retried or sent to another backend")
+
+
+def check_backend_identity_changes():
+    for stage in ("before", "after"):
+        for kind in ("child", "metadata", "initialized"):
+            code, report, calls, _, _, _ = operation("disabled", identity_change=(stage, kind))
+            assert code == 1 and report is None
+            writes = [method for _, method, _ in calls
+                      if method not in ("status", "remoteControl/status/read")]
+            assert writes == ([] if stage == "before" else ["remoteControl/enable"]), \
+                "changed backend received a write, rollback or replay"
+            if stage == "before":
+                assert all(method == "status" for _, method, _ in calls)
+    print("PASS backend identity changes: changed child/metadata/initialization before action refuses writes; after action refuses rollback or replay")
 
 
 def check_page():
@@ -335,13 +369,16 @@ def check_page():
         folder = root / "pairing"
         folder.mkdir(mode=0o700)
         (folder / "pairing.svg").write_text("SYNTHETIC_OLD_QR")
-        with patch.dict(sys.modules, {"qrcode": None, "qrcode.image": None, "qrcode.image.svg": None}):
-            assert remote.write_pairing_page(folder, {"serverName": "SYNTHETIC_HOST_SECRET"}, {
-                "pairingCode": "SYNTHETIC_PAIRING_SECRET", "manualPairingCode": "SYNTHETIC_MANUAL_SECRET",
-            }) is False
-        assert not (folder / "pairing.svg").exists()
+        assert remote.write_pairing_page(folder, {"serverName": "SYNTHETIC_HOST_SECRET"}, {
+            "pairingCode": "SYNTHETIC_PAIRING_SECRET", "manualPairingCode": "SYNTHETIC_MANUAL_SECRET",
+            "expiresAt": 1700000000,
+        }) is True
+        svg = folder / "pairing.svg"
+        assert svg.stat().st_mode & 0o777 == 0o600
+        assert ElementTree.parse(svg).getroot().tag == "{http://www.w3.org/2000/svg}svg"
         page = folder / "pairing.html"
         assert page.stat().st_mode & 0o777 == 0o600
+        assert "SYNTHETIC_MANUAL_SECRET" in page.read_text() and "2023-11-14 22:13:20 UTC" in page.read_text()
 
         windows_path = "\\\\wsl.localhost\\Ubuntu\\private\\O'Brien $HOME\\pairing.html"
         with patch.dict(remote.os.environ, {"WSL_DISTRO_NAME": "synthetic"}), \
@@ -372,15 +409,22 @@ def check_page():
                 patch.object(remote, "open_page", side_effect=OSError("SYNTHETIC_PAIRING_SECRET")), \
                 patch.object(remote, "call", side_effect=AssertionError("browser failure attempted Remote rollback")), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
-            assert remote.main(["pair", "--workspace", str(root), "--open"]) == 0
+            assert remote.main(["pair", "--open"]) == 0
         operate.assert_called_once_with("pair", target)
         assert json.loads(stdout.getvalue()) == report and "手动打开" in stderr.getvalue()
         assert "SYNTHETIC_PAIRING_SECRET" not in stdout.getvalue() + stderr.getvalue()
-    print("PASS private page: stale QR removed; mocked WSL/Linux opener; browser failure keeps successful connection")
+    print("PASS private page: bundled SVG/manual code/UTC expiry and private files; mocked WSL/Linux opener; browser failure keeps successful connection")
 
 
 if __name__ == "__main__":
+    if "--backend-lifecycle" in sys.argv:
+        check_backend_discovery()
+        check_backend_identity_changes()
+        check_operations()
+        check_page()
+        raise SystemExit(0)
     check_wrapper()
-    check_discovery()
+    check_backend_discovery()
+    check_backend_identity_changes()
     check_operations()
     check_page()

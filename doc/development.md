@@ -1,0 +1,63 @@
+# 开发说明
+
+本文说明 Codex Live Remote 的运行路径、配置和构建方式。用户操作见 [命令说明](commands.md)。
+
+## 连接模型
+
+官方 VS Code 扩展持有 app-server，thread 表示聊天，turn 表示任务。Remote 作用于所选 app-server，连接无需项目或已加载聊天。插件复用原进程，不启动第二个 app-server、不调用 thread/resume、不转移聊天 writer。
+
+CLI 枚举私有 `control.sock`，读取本地 status 和相邻 `process.json`，仅接纳 initialized=true 且 childPid 一致的后端。多个后端由用户选择 PID；另一个后端正在连接时不会静默切换。
+
+## 完整实现路径
+
+1. 官方扩展读取 `chatgpt.cliExecutable`，启动稳定路径中的 `wrapper/codex-wrapper app-server ...`。
+2. wrapper 以原参数、环境和目录启动官方扩展自带的 Codex binary，转发 stdio、stderr、信号和退出状态。日常 bridge 模式只保留私有 socket 和进程元数据，不捕获聊天流量。
+3. `wrapper/control.py` 观察官方客户端的 initialize 和协议生命周期，复用这个 app-server 的 stdin。原客户端请求继续透传；桥接请求使用独立 ID，桥接回复只返回给 socket 调用者。
+4. 插件命令经过 `extension/backend.js` 调用 `scripts/remote.py`。Windows 宿主用显式 `wsl.exe -d <distro> --exec` 执行 Linux Python；Remote-WSL 宿主直接执行 Python。argv 不经 shell 重解析，配置快照经 stdin JSON 传递。
+5. `scripts/control_client.py` 通过私有 socket 发送 JSONL，CLI 在操作前后校验后端身份，并调用原生 Remote 的 status/read、ephemeral enable/disable、pairing/start/status。
+6. 官方 app-server 使用已有 ChatGPT 登录建立官方 Remote 连接。手机经 ChatGPT 的配对授权和原生 Remote 协议操作聊天，结果同步回原 VS Code 客户端。
+7. `scripts/pair_remote.py` 将配对响应保存到私有文件，并使用内置 qrcode 生成本地 SVG/HTML。二维码指向官方配对 URL；浏览器与通知复用同一生成页面。
+
+控制接口限制在读取、活跃 turn 引导及 Remote 操作，不提供聊天创建/resume或审批应答。steer 要求已观察到的 active turn 和 expectedTurnId。输入帧串行写入；桥接回复与超时后的迟到回复都不会进入官方客户端。原审批请求保留 ID，仍由官方客户端和原生 Remote 处理。
+
+每次操作前后检查初始化状态及 childPid/metadata。只有本次新启用的 Remote 会在失败时清理，清理前再次核对身份；未知写请求不重放。
+
+## 激活与配置
+
+插件声明 `onStartupFinished`，在窗口启动后注册命令、显示状态栏并维护受管理的接入。连接由用户命令启动。该事件不保证本插件与官方扩展的激活顺序，也不表示 app-server 已就绪，实例发现以实际 initialized 状态为准。
+
+稳定运行文件位于 `~/.local/share/codex-remotecontrol/vscode/`。首次配置由 VS Code 配置 API 将 Global `chatgpt.cliExecutable` 指向稳定 wrapper，原值保存在 `settings-before-plugin.json`；恢复命令仅在当前设置仍等于受管理 wrapper 时还原它。
+
+自动维护在激活及 connect/pair 前执行，只接纳 Global 设置仍指向 stable wrapper 且 backup.managedValue 匹配的安装。它从当前宿主的官方扩展路径定位 Linux binary，更新变化资产和 realExecutable，保留其他配置字段及首次备份。无变化不写文件，外部或已恢复设置不自动启用。
+
+维护不重启原进程，更新启动路径后可能需要用户在任务结束时重载。Windows 与 WSL 的官方扩展版本可能不同但共享稳定 Linux 配置。
+
+## 数据与界面
+
+控制 socket 和配对文件为 0600，私有目录为 0700。配对码、账号凭据和聊天流量不进入日志、仓库或发布包。复制按钮只复制本机配对 HTML 的 file URI，WSL 使用 wsl.localhost；二维码编码官方手机配对 URL。
+
+通知和 clipboard 交互不延长后端操作锁，复制不会重新申请配对码。状态栏显示最近一次操作或查询结果；connected 表示 Remote 通道已启动，不表示手机已完成授权。
+
+命令和界面文字从用户当前要做的决定出发，只说明实际效果、必要选择和恢复动作。连接范围在产品介绍中集中说明，协议和开发理由保留在本文及代码注释。
+
+## 构建和测试
+
+需要 Node.js/npm、Python 3 和 Linux/WSL 运行环境。运行 `npm ci`，再运行 `npm run package`；VSIX 和 SHA256SUMS 输出到 `dist/`。打包检查核对 manifest、全部运行资产与文档，拒绝额外或缺失文件。
+
+受影响的离线检查：
+
+```sh
+node tests/check_extension.js
+python3 tests/check_control_client.py
+python3 tests/check_daily_remote.py --backend-lifecycle
+python3 tests/check_deploy_backend.py
+python3 tests/check_pairing_qr.py
+```
+
+测试使用临时目录、fake app-server 和 Node mock；开发过程记录、验收数据、捕获和本地配置均不属于公开源码或 Release 资产。源码不依赖这些本地文件，VSIX 使用单文件白名单。
+
+## 支持边界
+
+当前支持 Windows 本地 VS Code 通过 WSL 运行 Codex，以及 Remote-WSL。Python wrapper 使用 Linux 信号及 Unix socket，不支持 Windows 原生 codex.exe。原生 Remote 接口仍可能随官方版本改变，升级时应检查受影响的协议和资产。
+
+当前 Remote 主机名取系统名称，没有插件自定义入口；不通过修改系统主机名或引入额外启动隔离实现改名。

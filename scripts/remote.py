@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Connect a phone to a project's existing VS Code Codex owner."""
+"""Connect a phone to an existing VS Code Codex backend."""
 
 import argparse
 import json
@@ -10,18 +10,15 @@ import sys
 import webbrowser
 
 from pair_remote import private_json, write_pairing_page
-from probe_live import PROJECT, call, owners, result, wait_remote_status
-from protocol import same_directory
+from control_client import PROJECT, call, result, wait_remote_status
 
 
 class UserError(Exception):
     """A message written here, safe to show without upstream response data."""
 
 
-def discover(root, workspace=None, pid=None):
+def discover(root, pid=None):
     found = []
-    if not root.exists():
-        return found
     for path in sorted(root.glob("*/control.sock")):
         try:
             status = result(call(path, "status"))
@@ -29,18 +26,8 @@ def discover(root, workspace=None, pid=None):
             if (not status["initialized"] or meta["childPid"] != status["childPid"]
                     or (pid is not None and status["childPid"] != pid)):
                 continue
-            for tid in status["threads"]:
-                try:
-                    thread = result(call(path, "thread/read", {"threadId": tid, "includeTurns": False}))["thread"]
-                except (OSError, ValueError, KeyError, RuntimeError):
-                    continue
-                if (thread["id"] != tid or thread.get("ephemeral") is True
-                        or (workspace is not None and not same_directory(thread["cwd"], workspace))
-                        or owners(tid) != [status["childPid"]]):
-                    continue
-                found.append({"socket": str(path), "childPid": status["childPid"],
-                              "threadId": tid, "workspace": thread["cwd"],
-                              "active": tid in status["activeTurns"]})
+            found.append({"socket": str(path), "childPid": status["childPid"],
+                          "cwd": meta["cwd"], "active": bool(status["activeTurns"])})
         except (OSError, ValueError, KeyError, RuntimeError):
             continue
     return found
@@ -48,24 +35,19 @@ def discover(root, workspace=None, pid=None):
 
 def select(found):
     if not found:
-        raise UserError("没有找到此项目已加载的 VS Code 聊天。请重载该窗口并打开或新建聊天，再运行 list。")
+        raise UserError("未找到可连接的 Codex。请打开 Codex 面板后重试；首次启用接入后请先重载窗口。")
     pids = sorted({item["childPid"] for item in found})
     if len(pids) != 1:
-        raise UserError(f"此项目有多个 owner：{pids}。先运行 list，再用 --pid 明确选择窗口。")
-    # Remote is process-wide; any loaded project thread identifies the same owner.
+        raise UserError(f"发现多个 Codex：{pids}。运行 list 查看，再用 --pid 选择。")
     return found[0]
 
 
 def validate(target):
     status = result(call(target["socket"], "status"))
-    tid, pid = target["threadId"], target["childPid"]
-    if (not status["initialized"] or status["childPid"] != pid
-            or tid not in status["threads"] or owners(tid) != [pid]):
-        raise UserError("所选聊天的原 owner 已变化。请重新运行 list；本次未切换到其他进程。")
-    thread = result(call(target["socket"], "thread/read", {"threadId": tid, "includeTurns": False}))["thread"]
-    if (thread["id"] != tid or thread.get("ephemeral") is True
-            or not same_directory(thread["cwd"], target["workspace"])):
-        raise UserError("所选聊天的项目目录已变化。请重新运行 list。")
+    meta = json.loads((Path(target["socket"]).parent / "process.json").read_text())
+    pid = target["childPid"]
+    if not status["initialized"] or status["childPid"] != pid or meta["childPid"] != pid:
+        raise UserError("Codex 已关闭或重新启动。请重新运行 list 并选择。")
 
 
 def check_other_connections(target):
@@ -80,7 +62,7 @@ def check_other_connections(target):
         except (OSError, ValueError, KeyError, RuntimeError):
             continue
         if remote["status"] in ("connecting", "connected"):
-            raise UserError(f"另一个窗口 PID {status['childPid']} 已连接 Remote。先用 list 找到其项目并 disconnect，再连接此窗口。")
+            raise UserError(f"另一个 Codex（{status['childPid']}）已连接。请先断开，再连接此实例。")
 
 
 def operate(action, target):
@@ -89,7 +71,7 @@ def operate(action, target):
     folder = Path(path).parent / "pairing"
     remote = result(call(path, "remoteControl/status/read"))
     enabled_here = False
-    report = {"action": action, "childPid": target["childPid"], "workspace": target["workspace"]}
+    report = {"action": action, "childPid": target["childPid"]}
     try:
         if action in ("connect", "pair"):
             if remote["status"] == "disabled":
@@ -103,7 +85,7 @@ def operate(action, target):
                 pairing = result(call(path, "remoteControl/pairing/start", {"manualCode": True}))
                 folder.mkdir(mode=0o700, exist_ok=True)
                 private_json(folder / "state.json", {"childPid": target["childPid"], "pairing": pairing})
-                report["qrAvailable"] = write_pairing_page(folder, remote, pairing, target["workspace"])
+                report["qrAvailable"] = write_pairing_page(folder, remote, pairing)
                 report.update(pairingPage=str(folder / "pairing.html"), expiresAt=pairing["expiresAt"])
         elif action == "disconnect":
             if remote["status"] != "disabled":
@@ -124,6 +106,7 @@ def operate(action, target):
     except Exception:
         if enabled_here:
             try:
+                validate(target)
                 result(call(path, "remoteControl/disable", {"ephemeral": True}))
                 wait_remote_status(path, "disabled", 5)
                 print("连接未完成，已恢复 Remote 关闭状态。", file=sys.stderr)
@@ -147,20 +130,14 @@ def open_page(page):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("list", "connect", "pair", "status", "disconnect"))
-    parser.add_argument("--workspace", type=Path, help="项目目录；操作默认当前目录，list 默认列出全部项目")
-    parser.add_argument("--pid", type=int, help="同项目多个窗口时明确选择原 app-server PID")
+    parser.add_argument("--pid", type=int, help="多个 Codex 实例时选择 list 显示的进程 ID")
     parser.add_argument("--open", action="store_true", help="配对后用默认浏览器打开私有页面（仅 pair）")
     args = parser.parse_args(argv)
     if args.open and args.action != "pair":
         parser.error("--open 只用于 pair")
     try:
-        workspace = args.workspace
-        if args.action != "list" and workspace is None:
-            workspace = Path.cwd()
-        if workspace is not None and not workspace.is_dir():
-            raise UserError("--workspace 必须是现有项目目录。")
         config = json.loads((PROJECT / "wrapper/codex-wrapper.local.json").read_text())
-        found = discover(Path(config["captureRoot"]), workspace, args.pid)
+        found = discover(Path(config["captureRoot"]), args.pid)
         if args.action == "list":
             print(json.dumps([{k: v for k, v in item.items() if k != "socket"} for item in found],
                              ensure_ascii=False, indent=2))

@@ -53,13 +53,16 @@ async function backend(packageRoot, platform = process.platform, run = execute) 
   const deploy = path.posix.join(root, 'scripts/deploy_backend.py');
   return {
     distro: host.distro || process.env.WSL_DISTRO_NAME,
-    linuxPath: host.linuxPath,
     info: () => host.python(deploy, ['info']),
     async install(officialRoot, previous) {
       return host.python(deploy, ['install', '--extension-root', await host.linuxPath(officialRoot)], previous);
     },
-    cli: (file, action, workspace, pid, open = false) => host.python(file, [
-      action, '--workspace', workspace, ...(pid === undefined ? [] : ['--pid', String(pid)]), ...(open ? ['--open'] : []),
+    async maintain(officialRoot, previous) {
+      return host.python(deploy, ['maintain', '--extension-root', await host.linuxPath(officialRoot)], previous);
+    },
+    cli: (file, action, pid, open = false) => host.python(file, [
+      action,
+      ...(pid === undefined ? [] : ['--pid', String(pid)]), ...(open ? ['--open'] : []),
     ]),
   };
 }

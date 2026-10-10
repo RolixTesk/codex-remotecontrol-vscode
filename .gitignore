@@ -1,10 +1,26 @@
-# Disposable workspace and later local captures
-experiments/baseline/*
-!experiments/baseline/README.md
-experiments/wsl-baseline/*
-!experiments/wsl-baseline/README.md
-captures/
+# Local planning, experiments and acceptance records
+/.planning/
+/agent.md
+/evidence/
+/experiments/
+/captures/
+/wrapper/README.md
+/scripts/observe_protocol.py
+/scripts/probe_live.py
+/scripts/probe_phone.py
+/tests/check_pair_remote.py
+/tests/check_probe.py
+/tests/check_phone_probe.py
+/tests/check_protocol.py
+/tests/fixtures/observed.jsonl
+/tests/run_extension_host.js
+/tests/check_extension_host.js
+/tests/check_windows_transport.js
+/tests/check_wsl_scope.py
+
+# Local runtime configuration and build output
 __pycache__/
-wrapper/*.local.json
-node_modules/
-dist/
+*.pyc
+/wrapper/*.local.json
+/node_modules/
+/dist/

@@ -1,8 +1,0 @@
-{
-  "completed": false,
-  "failedStage": "read",
-  "failureType": "AssertionError",
-  "reason": "Thread metadata cwd differs only by Windows mount case: Works versus works; both have the same filesystem identity.",
-  "injectedSteerRequests": 0,
-  "injectedRemoteWriteRequests": 0
-}

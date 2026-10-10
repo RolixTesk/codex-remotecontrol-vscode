@@ -35,6 +35,23 @@ async function completes(promise, description) {
   } finally { clearTimeout(timer); }
 }
 
+function checkManifest() {
+  const manifest = require(path.join(root, 'package.json'));
+  const expected = {
+    'codexRemote.enable': '配置远程控制',
+    'codexRemote.connect': '启动远程控制',
+    'codexRemote.pair': '配对手机',
+    'codexRemote.status': '查看远程控制状态',
+    'codexRemote.disconnect': '停止远程控制',
+    'codexRemote.restore': '恢复 Codex 启动设置（卸载前）',
+  };
+  const commands = manifest.contributes.commands;
+  assert.equal(commands.length, 6);
+  assert.deepEqual(Object.fromEntries(commands.map(command => [command.command, command.title])), expected);
+  assert.ok(commands.every(command => command.category === 'Codex Remote'));
+  console.log('PASS command manifest: six stable IDs with configure/start/pair/status/stop/restore titles');
+}
+
 async function checkTransport() {
   const executed = [];
   let nextError;
@@ -72,34 +89,61 @@ async function checkTransport() {
   };
   const backend = await api.backend(packageRoot, 'win32', run);
   assert.equal(backend.distro, 'Ubuntu-24.04');
+  assert.equal(Object.hasOwn(backend, 'linuxPath'), false, 'backend no longer exposes project path conversion');
   await backend.info();
   await backend.install(officialRoot, { wasSet: false, value: null });
-  await backend.cli("/private/script space'中文.py", 'pair', "/project space'中文", 202, true);
+  await backend.maintain(officialRoot, { wasSet: true, value: '/stable/wrapper/codex-wrapper' });
+  await backend.cli("/private/script space'中文.py", 'pair', 202, true);
   for (const call of calls.slice(1)) {
     assert.equal(call.command, 'wsl.exe');
     assert.deepEqual(call.args.slice(0, 3), ['-d', 'Ubuntu-24.04', '--exec']);
   }
   assert.deepEqual(calls[1].args, ['-d', 'Ubuntu-24.04', '--exec', 'wslpath', '-a', '-u', packageRoot]);
   assert.deepEqual(calls.at(-1).args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
-    "/private/script space'中文.py", 'pair', '--workspace', "/project space'中文", '--pid', '202', '--open']);
+    "/private/script space'中文.py", 'pair', '--pid', '202', '--open']);
   assert.deepEqual(calls.find(call => call.input).input, { wasSet: false, value: null });
+  const maintenance = calls.find(call => call.args.includes('maintain'));
+  assert.deepEqual(maintenance.args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
+    "/mnt/c/package space'中文/scripts/deploy_backend.py", 'maintain', '--extension-root', "/mnt/c/official space'中文"]);
+  assert.deepEqual(maintenance.input, { wasSet: true, value: '/stable/wrapper/codex-wrapper' });
+  await backend.cli("/private/script space'中文.py", 'list');
+  assert.deepEqual(calls.at(-1).args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
+    "/private/script space'中文.py", 'list']);
+  await backend.cli("/private/script space'中文.py", 'connect', 202);
+  assert.deepEqual(calls.at(-1).args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
+    "/private/script space'中文.py", 'connect', '--pid', '202']);
+  await backend.cli("/private/script space'中文.py", 'pair', 202, true);
+  assert.deepEqual(calls.at(-1).args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
+    "/private/script space'中文.py", 'pair', '--pid', '202', '--open']);
   await assert.rejects(api.transport('win32', async () => Buffer.from('Debian\n')), /Ubuntu/);
   const localCalls = [];
   const local = await api.backend("/package space'中文", 'linux', async (...args) => {
     localCalls.push(args);
     return Buffer.from('{}');
   });
-  assert.equal(await local.linuxPath("/local space'中文"), "/local space'中文");
+  assert.equal(Object.hasOwn(local, 'linuxPath'), false);
+  const localHost = await api.transport('linux', async () => { throw new Error('unexpected local path command'); });
+  assert.equal(await localHost.linuxPath("/local space'中文"), "/local space'中文");
   await local.info();
-  assert.deepEqual(localCalls, [['python3', ["/package space'中文/scripts/deploy_backend.py", 'info'], undefined]]);
-  console.log('PASS transport: UTF-16 first Ubuntu, explicit distro, local/WSL Python, literal argv/input without shell');
+  await local.maintain("/official space'中文", { wasSet: true, value: '/stable/wrapper/codex-wrapper' });
+  await local.cli('/stable/scripts/remote.py', 'status', 101);
+  assert.deepEqual(localCalls, [
+    ['python3', ["/package space'中文/scripts/deploy_backend.py", 'info'], undefined],
+    ['python3', ["/package space'中文/scripts/deploy_backend.py", 'maintain', '--extension-root', "/official space'中文"],
+      { wasSet: true, value: '/stable/wrapper/codex-wrapper' }],
+    ['python3', ['/stable/scripts/remote.py', 'status', '--pid', '101'], undefined],
+  ]);
+  assert.equal(calls.some(call => call.args.includes('--workspace')), false);
+  assert.equal(localCalls.some(call => call[1].includes('--workspace')), false);
+  console.log('PASS transport: UTF-16 first Ubuntu, explicit distro, local/WSL Python, PID-only CLI, private path conversion, literal argv/input without shell');
 }
 
 async function harness(options = {}) {
   const managed = '/stable/wrapper/codex-wrapper';
-  const folders = options.folders || [{ name: '项目 A', uri: { fsPath: "/project A'中文", scheme: 'file' } }];
   const state = { global: options.global, updates: [], calls: [], picks: [...(options.picks || [])],
-    information: [], errors: [], warnings: [], opened: [], quickPicks: [], status: undefined,
+    information: [], errors: [], warnings: [], opened: [], copied: [], quickPicks: [], status: undefined,
+    officialRoot: options.officialRoot || "/official space'中文",
+    workspaceReads: 0,
     notifications: [], progress: { started: 0, completed: 0, active: 0 } };
   function notification(kind, args, result) {
     state[kind].push(kind === 'information' ? args : args[0]);
@@ -111,29 +155,45 @@ async function harness(options = {}) {
   const backup = Object.hasOwn(options, 'backup') ? options.backup : {
     wasSet: options.global !== undefined, value: options.global ?? null, managedValue: managed,
   };
+  const location = { installed: options.installed !== false, wrapper: managed, cli: '/stable/scripts/remote.py', backup };
   const bridge = {
     distro: options.distro,
-    async info() { state.calls.push(['info']); return { installed: true, wrapper: managed, cli: '/stable/scripts/remote.py', backup }; },
+    async info() { state.calls.push(['info']); return options.info ? options.info(state, location) : location; },
     async install(official, previous) { state.calls.push(['install', official, previous]); return { wrapper: managed }; },
-    async linuxPath(value) { state.calls.push(['linuxPath', value]); return value; },
+    async maintain(official, previous) {
+      state.calls.push(['maintain', official, previous]);
+      if (options.maintainError) throw options.maintainError;
+      return options.maintain ? options.maintain(state, location)
+        : { ...location, managed: true, updated: false, binaryChanged: false };
+    },
     async cli(...args) {
       state.calls.push(['cli', ...args]);
-      if (args[1] === 'list') return options.threads || [{ childPid: 101, active: false }];
+      if (args[1] === 'list') return options.instances || [{ childPid: 101, cwd: '/backend cwd', active: false }];
       if (options.cli) return options.cli(...args);
-      return { status: args[1] === 'disconnect' ? 'disabled' : 'connected', pairingPage: '/private/pairing.html' };
+      return { status: args[1] === 'disconnect' ? 'disabled' : 'connected', pairingPage: options.pairingPage || '/private/pairing.html' };
     },
   };
+  function uri(value) {
+    return Object.defineProperty({ ...value }, 'toString', { value() {
+      const encoded = this.path.split('/').map(part => encodeURIComponent(part)
+        .replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)).join('/');
+      return `${this.scheme}://${this.authority || ''}${encoded}`;
+    } });
+  }
   const commands = new Map();
   const vscode = {
     StatusBarAlignment: { Right: 2 }, ConfigurationTarget: { Global: 1 }, ProgressLocation: { Notification: 15 },
-    env: { remoteName: 'wsl', async openExternal(uri) {
+    env: { remoteName: Object.hasOwn(options, 'remoteName') ? options.remoteName : 'wsl', async openExternal(uri) {
       state.opened.push(uri);
-      if (options.openError) throw options.openError;
-      return options.openResult !== false;
-    } },
-    Uri: { from(value) { return value; }, file(value) { return { scheme: 'file', path: value }; } },
+      throw new Error('unexpected second browser opening by extension');
+    }, clipboard: { async writeText(value) {
+      state.copied.push(value);
+      if (options.clipboardError) throw options.clipboardError;
+      if (options.clipboardWork) await options.clipboardWork.promise;
+    } } },
+    Uri: { from: uri, file(value) { return uri({ scheme: 'file', path: value }); } },
     workspace: {
-      workspaceFolders: folders,
+      get workspaceFolders() { state.workspaceReads++; throw new Error('unexpected workspace folder access'); },
       getConfiguration(namespace) {
         assert.equal(namespace, 'chatgpt');
         return {
@@ -160,16 +220,18 @@ async function harness(options = {}) {
       registerCommand(name, callback) { commands.set(name, callback); return { dispose() { commands.delete(name); } }; },
       executeCommand() { throw new Error('unexpected reload or other VS Code command'); },
     },
-    extensions: { getExtension(name) { assert.equal(name, 'openai.chatgpt'); return { extensionPath: "/official space'中文" }; } },
+    extensions: { getExtension(name) { assert.equal(name, 'openai.chatgpt'); return options.officialMissing ? undefined : { extensionPath: state.officialRoot }; } },
   };
   const extension = load(path.join(root, 'extension/extension.js'), {
     vscode, './backend': { async backend(value) { state.calls.push(['backend', value]); return bridge; } },
   });
   const context = { extensionPath: "/package space'中文", subscriptions: [] };
   await extension.activate(context);
+  await flushCallbacks();
   assert.deepEqual([...commands.keys()].sort(), ['connect', 'disconnect', 'enable', 'pair', 'restore', 'status'].map(name => `codexRemote.${name}`).sort());
-  assert.deepEqual(state.calls, []);
+  assert.equal(state.calls.some(call => ['cli', 'install'].includes(call[0])), false, 'activation never connects or enables');
   assert.deepEqual(state.updates, []);
+  assert.equal(state.workspaceReads, 0);
   return { state, bridge, context, extension, command: name => commands.get(`codexRemote.${name}`)() };
 }
 
@@ -215,30 +277,46 @@ async function checkSettings() {
 }
 
 async function checkCommands() {
-  const folders = [{ name: '项目 A', uri: { fsPath: '/project A', scheme: 'file' } },
-    { name: '项目 B', uri: { fsPath: "/project B'中文", scheme: 'vscode-remote' } }];
-  const app = await harness({ folders, picks: [1, 1], threads: [{ childPid: 101 }, { childPid: 202, active: true }] });
+  const app = await harness({ picks: [1], instances: [
+    { childPid: 101, cwd: '/backend A', active: false },
+    { childPid: 202, cwd: "/backend B'中文", active: true },
+  ] });
   await app.command('connect');
   assert.deepEqual(app.state.calls.filter(call => call[0] === 'cli').map(call => call.slice(2)),
-    [['list', "/project B'中文"], ['connect', "/project B'中文", 202, false]]);
-  assert.match(app.state.status.text, /已连接/);
-  assert.match(app.state.status.tooltip, /项目 B.*202/);
-  assert.equal(app.state.quickPicks.length, 2);
-  const cancelledFolder = await harness({ folders });
-  await cancelledFolder.command('connect');
-  assert.deepEqual(cancelledFolder.state.calls, []);
-  const cancelledPid = await harness({ threads: [{ childPid: 101 }, { childPid: 202 }] });
+    [['list'], ['connect', 202, false]]);
+  assert.match(app.state.status.text, /已启动/);
+  assert.doesNotMatch(app.state.status.tooltip || '', /作用于|不限于|定位项目/);
+  assert.equal(app.state.quickPicks.length, 1, 'only the backend instance is selected');
+  assert.equal(app.state.quickPicks[0][0].length, 2);
+  assert.equal(app.state.workspaceReads, 0);
+  assert.doesNotMatch(app.state.information[0][0], /PID|作用于|不限于|定位项目/);
+  const cancelledPid = await harness({ instances: [{ childPid: 101, cwd: '/backend A' }, { childPid: 202, cwd: '/backend B' }] });
   await cancelledPid.command('connect');
   assert.deepEqual(cancelledPid.state.calls.filter(call => call[0] === 'cli').map(call => call[2]), ['list']);
+  assert.equal(cancelledPid.state.quickPicks.length, 1);
   assert.deepEqual(cancelledPid.state.updates, []);
 
-  for (const name of ['status', 'disconnect', 'pair']) {
+  for (const name of ['connect', 'status', 'disconnect', 'pair']) {
     const item = await harness();
     await item.command(name);
     assert.deepEqual(item.state.calls.filter(call => call[0] === 'cli').map(call => call.slice(2)),
-      [['list', "/project A'中文"], [name, "/project A'中文", 101, name === 'pair']]);
-    assert.match(item.state.status.text, name === 'disconnect' ? /未连接/ : /已连接/);
+      [['list'], [name, 101, name === 'pair']]);
+    assert.match(item.state.status.text, name === 'disconnect' ? /未启动/ : /已启动/);
+    assert.doesNotMatch(item.state.status.text, /已连接|未连接/);
     assert.deepEqual(item.state.updates, []);
+    assert.deepEqual(item.state.errors, []);
+    assert.equal(item.state.workspaceReads, 0, `${name} works without workspace or loaded thread`);
+    assert.equal(item.state.quickPicks.length, 0);
+    for (const notice of item.state.information) assert.doesNotMatch(notice[0], /PID|作用于|不限于|定位项目/);
+    if (name === 'connect') assert.match(item.state.information[0][0], /已启动/);
+    if (name === 'disconnect') assert.match(item.state.information[0][0], /已停止|未启动/);
+    const absent = await harness({ instances: [] });
+    await absent.command(name);
+    assert.deepEqual(absent.state.calls.filter(call => call[0] === 'cli').map(call => call.slice(2)), [['list']]);
+    assert.match(absent.state.errors[0], /Codex.*面板/);
+    assert.doesNotMatch(absent.state.errors[0], /项目|已加载.*聊天/);
+    assert.equal(absent.state.workspaceReads, 0);
+    assert.equal(absent.state.quickPicks.length, 0);
   }
   let finish;
   const busy = await harness({ cli: () => new Promise(resolve => { finish = resolve; }) });
@@ -250,21 +328,22 @@ async function checkCommands() {
   finish({ status: 'connected' });
   await first;
   assert.match(busy.state.information[0][0], /正在执行/);
-  console.log('PASS commands: explicit project/PID, cancellation reads only, CLI/status-bar routing, busy clicks do not duplicate writes');
+  console.log('PASS backend commands: no workspace/thread requirement, one instance selection, cancellation reads only, missing backend opens-panel guidance, concise notices, busy clicks do not duplicate writes');
 
-  const opened = await harness({ distro: 'Ubuntu-24.04', informationChoice: '打开配对页' });
+  const opened = await harness({ distro: 'Ubuntu-24.04', informationChoice: '复制网页链接' });
   await opened.command('pair');
   await flushCallbacks();
-  assert.deepEqual(opened.state.opened, [{ scheme: 'file', authority: 'wsl.localhost', path: '/Ubuntu-24.04/private/pairing.html' }]);
+  assert.deepEqual(opened.state.copied, ['file://wsl.localhost/Ubuntu-24.04/private/pairing.html']);
+  assert.deepEqual(opened.state.opened, []);
   assert.deepEqual(opened.state.calls.filter(call => call[0] === 'cli').map(call => call[2]), ['list', 'pair']);
-  const fallback = await harness({ informationChoice: '打开配对页', openResult: false,
-    folders: [{ name: 'WSL', uri: { scheme: 'vscode-remote', authority: 'wsl+Ubuntu%20Preview', fsPath: '/project' } }] });
+  const fallback = await harness({ informationChoice: '复制网页链接', distro: 'Ubuntu Preview',
+    pairingPage: '/private/pair page 中文?#.html' });
   await fallback.command('pair');
   await flushCallbacks();
-  assert.deepEqual(fallback.state.opened, [{ scheme: 'file', authority: 'wsl.localhost', path: '/Ubuntu Preview/private/pairing.html' }]);
-  assert.match(fallback.state.warnings[0], /\/private\/pairing\.html/);
+  assert.deepEqual(fallback.state.copied, ['file://wsl.localhost/Ubuntu%20Preview/private/pair%20page%20%E4%B8%AD%E6%96%87%3F%23.html']);
+  assert.deepEqual(fallback.state.opened, []);
   assert.deepEqual(fallback.state.calls.filter(call => call[0] === 'cli').map(call => call[2]), ['list', 'pair']);
-  console.log('PASS pairing fallback: same private page/WSL distro, no repeated RPC, warning preserves existing page');
+  console.log('PASS pairing copy: same existing page URI, WSL distro and encoded path, no browser reopening or repeated RPC');
 }
 
 async function checkNotificationLifecycle() {
@@ -292,10 +371,12 @@ async function checkNotificationLifecycle() {
   const pair = await harness({ deferNotifications: true, distro: 'Ubuntu-24.04' });
   await completes(pair.command('pair'), 'pairing before selecting notification');
   assert.deepEqual(pair.state.opened, []);
+  assert.deepEqual(pair.state.copied, []);
   await completes(pair.command('status'), 'pairing followed by status');
-  pair.state.notifications[0].resolve('打开配对页');
+  pair.state.notifications[0].resolve('复制网页链接');
   await flushCallbacks();
-  assert.deepEqual(pair.state.opened, [{ scheme: 'file', authority: 'wsl.localhost', path: '/Ubuntu-24.04/private/pairing.html' }]);
+  assert.deepEqual(pair.state.copied, ['file://wsl.localhost/Ubuntu-24.04/private/pairing.html']);
+  assert.deepEqual(pair.state.opened, []);
   assert.equal(pair.state.calls.filter(call => call[0] === 'cli' && call[2] === 'pair').length, 1);
   assert.deepEqual(pair.state.progress, { started: 2, completed: 2, active: 0 });
 
@@ -303,17 +384,16 @@ async function checkNotificationLifecycle() {
   const recordUnhandled = error => unhandled.push(error);
   process.on('unhandledRejection', recordUnhandled);
   try {
-    for (const mode of ['browser declined', 'browser rejected', 'notification rejected']) {
+    for (const mode of ['clipboard rejected', 'notification rejected']) {
       const message = `synthetic ${mode}`;
-      const app = await harness({ deferNotifications: true, openResult: mode !== 'browser declined',
-        openError: mode === 'browser rejected' ? new Error(message) : undefined });
+      const app = await harness({ deferNotifications: true,
+        clipboardError: mode === 'clipboard rejected' ? new Error(message) : undefined });
       await completes(app.command('pair'), mode);
       if (mode === 'notification rejected') app.state.notifications[0].reject(new Error(message));
-      else app.state.notifications[0].resolve('打开配对页');
+      else app.state.notifications[0].resolve('复制网页链接');
       await flushCallbacks();
       await flushCallbacks();
-      if (mode === 'browser declined') assert.match(app.state.warnings[0], /\/private\/pairing\.html/);
-      else assert.match(app.state.errors[0], new RegExp(message));
+      assert.match(app.state.errors[0], /配对页链接未复制/);
       await completes(app.command('status'), `${mode} followed by status`);
       assert.equal(app.state.calls.filter(call => call[0] === 'cli' && call[2] === 'pair').length, 1);
     }
@@ -334,16 +414,147 @@ async function checkNotificationLifecycle() {
   backendWork.resolve({ status: 'connected' });
   await completes(first, 'backend completion with success notification undismissed');
   assert.deepEqual(busy.state.progress, { started: 1, completed: 1, active: 0 });
-  console.log('PASS notification lifecycle: undismissed success/error/pairing notices release progress and busy, delayed pairing opens once, browser/notification rejection handled, running backend remains exclusive');
+  console.log('PASS notification lifecycle: undismissed success/error/pairing notices release progress and busy, delayed pairing copies once, clipboard/notification rejection handled, running backend remains exclusive');
+}
+
+async function checkPairingCopy() {
+  for (const qrAvailable of [true, false]) {
+    const clipboardWork = deferred();
+    const app = await harness({ deferNotifications: true, distro: 'Ubuntu-24.04',
+      clipboardWork,
+      cli: async (_script, action) => ({ status: 'connected',
+        ...(action === 'pair' ? { qrAvailable, pairingPage: '/private/pairing.html' } : {}) }),
+    });
+    await completes(app.command('pair'), 'copy before selecting notification');
+    const notification = app.state.notifications[0];
+    assert.deepEqual(notification.args.slice(1), ['复制网页链接']);
+    assert.deepEqual(app.state.progress, { started: 1, completed: 1, active: 0 });
+    assert.deepEqual(app.state.opened, []);
+    assert.deepEqual(app.state.copied, []);
+    notification.resolve('复制网页链接');
+    await flushCallbacks();
+    assert.deepEqual(app.state.copied, ['file://wsl.localhost/Ubuntu-24.04/private/pairing.html']);
+    assert.deepEqual(app.state.opened, []);
+    await completes(app.command('status'), 'pending clipboard work followed by status');
+    const pairCalls = app.state.calls.filter(call => call[0] === 'cli' && call[2] === 'pair');
+    assert.equal(pairCalls.length, 1);
+    assert.equal(pairCalls[0].at(-1), true, 'backend pair --open remains responsible for initial browser opening');
+    assert.equal(app.state.calls.filter(call => call[0] === 'cli' && call[2] === 'status').length, 1);
+    assert.deepEqual(app.state.progress, { started: 2, completed: 2, active: 0 });
+    clipboardWork.resolve();
+    await flushCallbacks();
+    assert.deepEqual(app.state.errors, []);
+  }
+  const local = await harness({ informationChoice: '复制网页链接', remoteName: undefined });
+  await local.command('pair');
+  await flushCallbacks();
+  assert.deepEqual(local.state.copied, ['file:///private/pairing.html']);
+  assert.deepEqual(local.state.opened, []);
+  console.log('PASS pairing copy button: single choice, existing local/WSL file URI, one pair --open, delayed clipboard work releases progress and busy');
+}
+
+async function checkMaintenance() {
+  const managed = '/stable/wrapper/codex-wrapper';
+  const backup = { wasSet: true, value: "/original executable'中文", managedValue: managed };
+  const count = app => app.state.calls.filter(call => call[0] === 'maintain').length;
+  const app = await harness({ global: managed, backup });
+  assert.equal(count(app), 1, 'activation maintains managed wrapper');
+  assert.deepEqual(app.state.calls.find(call => call[0] === 'maintain').slice(1),
+    ["/official space'中文", { wasSet: true, value: managed }]);
+  assert.deepEqual(app.state.updates, []);
+  assert.equal(app.state.calls.some(call => call[0] === 'cli'), false);
+  app.state.officialRoot = "/new official version space'中文";
+  await app.command('connect');
+  assert.equal(count(app), 2, 'connect refreshes managed backend path');
+  assert.equal(app.state.calls.filter(call => call[0] === 'maintain').at(-1)[1], app.state.officialRoot);
+  await app.command('pair');
+  assert.equal(count(app), 3, 'pair refreshes managed backend path');
+  for (const action of ['status', 'disconnect']) await app.command(action);
+  assert.equal(count(app), 3, 'status and disconnect do not maintain');
+  assert.deepEqual(app.state.updates, []);
+  assert.strictEqual((await app.bridge.info()).backup, backup);
+  await app.command('restore');
+  assert.equal(count(app), 3, 'restore does not maintain');
+  assert.equal(app.state.global, backup.value);
+  await app.command('connect');
+  assert.equal(count(app), 3, 'restored external setting remains unmanaged');
+  assert.deepEqual(app.state.updates, [['cliExecutable', backup.value, 1]]);
+
+  for (const global of [undefined, null, '/external CLI']) {
+    const external = await harness({ global });
+    assert.equal(count(external), 0);
+    await external.command('connect');
+    await external.command('pair');
+    assert.equal(count(external), 0, 'unmanaged settings never enable themselves');
+    assert.deepEqual(external.state.updates, []);
+    assert.equal(external.state.calls.some(call => call[0] === 'install'), false);
+  }
+  const unsupported = await harness({ global: managed, remoteName: 'ssh-remote' });
+  assert.deepEqual(unsupported.state.calls, []);
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const native = await harness({ global: managed, runInWsl: false, remoteName: undefined });
+    assert.equal(count(native), 0);
+    await native.command('restore');
+    assert.equal(native.state.errors.length, 0);
+  } finally { Object.defineProperty(process, 'platform', platform); }
+
+  const upgraded = await harness({ global: managed, deferNotifications: true,
+    maintain: (_state, location) => ({ ...location, managed: true, updated: true, binaryChanged: true }) });
+  const notices = [...upgraded.state.information.map(args => args[0]), ...upgraded.state.warnings];
+  assert.ok(notices.some(message => /重载/.test(message)), 'binary upgrade explains idle reload requirement');
+  await completes(upgraded.command('status'), 'status after undismissed upgrade notice');
+  assert.equal(count(upgraded), 1);
+  assert.deepEqual(upgraded.state.updates, []);
+
+  const broken = await harness({ global: managed, deferNotifications: true, backup,
+    maintainError: new Error('synthetic automatic maintenance failure') });
+  assert.match(broken.state.warnings[0], /synthetic automatic maintenance failure/);
+  assert.deepEqual(broken.state.errors, []);
+  await completes(broken.command('restore'), 'restore after undismissed automatic maintenance warning');
+  assert.equal(broken.state.global, backup.value);
+  assert.equal(count(broken), 1);
+
+  let infoCalls = 0;
+  const unreadable = await harness({ global: managed, backup,
+    info: (_state, location) => {
+      if (++infoCalls === 1) throw new Error('synthetic maintenance info failure');
+      return location;
+    } });
+  assert.match(unreadable.state.warnings[0], /synthetic maintenance info failure/);
+  await unreadable.command('restore');
+  assert.equal(unreadable.state.global, backup.value);
+  assert.deepEqual(unreadable.state.errors, []);
+  console.log('PASS managed maintenance: activation/connect/pair refresh current official path, no settings/reload/auto-connect, preserve backup and external settings, status/disconnect/restore skip maintenance, failures keep restore usable');
 }
 
 (async () => {
+  if (process.argv.includes('--manifest')) {
+    checkManifest();
+    return;
+  }
+  if (process.argv.includes('--backend-only')) {
+    await checkCommands();
+    return;
+  }
+  if (process.argv.includes('--pairing-copy')) {
+    await checkPairingCopy();
+    return;
+  }
+  if (process.argv.includes('--maintenance')) {
+    await checkMaintenance();
+    return;
+  }
   if (process.argv.includes('--notification-lifecycle')) {
     await checkNotificationLifecycle();
     return;
   }
+  checkManifest();
   await checkTransport();
   await checkSettings();
   await checkCommands();
   await checkNotificationLifecycle();
+  await checkPairingCopy();
+  await checkMaintenance();
 })().catch(error => { console.error(error); process.exitCode = 1; });
