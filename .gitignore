@@ -24,3 +24,6 @@ __pycache__/
 /wrapper/*.local.json
 /node_modules/
 /dist/
+
+# secret
+/key

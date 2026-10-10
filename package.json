@@ -2,10 +2,10 @@
   "name": "codex-live-remote",
   "displayName": "Codex Live Remote",
   "description": "Use ChatGPT mobile to remotely control Codex in VS Code.",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "publisher": "rolix",
   "engines": {
-    "vscode": "^1.140.0"
+    "vscode": "^1.118.0"
   },
   "categories": [
     "Other"
@@ -58,7 +58,7 @@
     ]
   },
   "scripts": {
-    "package": "vsce package --out dist/codex-live-remote-0.1.7.vsix --allow-missing-repository --no-rewrite-relative-links --skip-license --no-dependencies && python3 tests/check_vsix.py"
+    "package": "vsce package --out dist/codex-live-remote-0.1.9.vsix --allow-missing-repository --no-rewrite-relative-links --skip-license --no-dependencies && python3 tests/check_vsix.py"
   },
   "license": "UNLICENSED",
   "private": true,

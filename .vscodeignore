@@ -7,7 +7,7 @@
 !extension/extension.js
 !extension/backend.js
 !scripts/deploy_backend.py
-!scripts/remote.py
+!scripts/remote_backend.py
 !scripts/pair_remote.py
 !scripts/control_client.py
 !wrapper/codex-wrapper

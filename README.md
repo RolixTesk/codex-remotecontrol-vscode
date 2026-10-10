@@ -4,11 +4,11 @@
 
 一次连接对应一个 Codex 实例，手机可选择其中的聊天。启动远程控制前只需启动 Codex，无需打开某个会话或项目。
 
-支持 Windows 本地 VS Code + WSL Codex，以及 Remote-WSL 窗口。需要已安装并登录官方 Codex 扩展，WSL 中有 Python 3；当前不支持 Windows 原生 Codex 接入。
+支持 Ubuntu 本地 VS Code、Windows 本地 VS Code + WSL Codex，以及 Remote-WSL 窗口。需要 VS Code 1.118 或更新版本、官方 Codex 扩展和 Linux 环境中的 Python 3。配置可在未登录时完成；使用手机远程控制前需登录官方 Codex。当前不支持 Windows 原生 Codex 接入。
 
 ## 安装与首次使用
 
-在 VS Code 扩展视图点击 `…` → **从 VSIX 安装…**，选择 `codex-live-remote-0.1.7.vsix`。Windows 窗口安装到本地，Remote-WSL 窗口安装到 WSL。
+在 VS Code 扩展视图点击 `…` → **从 VSIX 安装…**，选择 `codex-live-remote-0.1.9.vsix`。Ubuntu 或 Windows 本地窗口安装到本地，Remote-WSL 窗口安装到 WSL。
 
 1. 按 `Ctrl+Shift+P`，运行 **Codex Remote: 配置远程控制**。
 2. 等当前任务结束，运行 **Developer: Reload Window**。
@@ -28,20 +28,6 @@
 卸载前运行 **恢复 Codex 启动设置（卸载前）**，等任务结束后重载，再卸载插件。恢复的是首次配置前的设置。
 
 完整操作说明见 [使用文档](doc/README.md) 和 [命令说明](doc/commands.md)。
-
-## CLI 入口
-
-在 WSL 终端运行，无需切换到某个项目目录：
-
-```sh
-codex-remote list
-codex-remote connect
-codex-remote pair --open
-codex-remote status
-codex-remote disconnect
-```
-
-多个实例时，从 `list` 中选择进程 ID，加 `--pid <ID>`。未安装短命令时可运行 `python3 /此项目/scripts/remote.py <命令>`。
 
 ## 实现方式
 

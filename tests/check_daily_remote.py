@@ -19,7 +19,7 @@ from xml.etree import ElementTree
 from check_control import encoded, read_line, socket_reply, wait_for
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import remote
+import remote_backend as remote
 
 
 FAKE_SERVER = r'''#!/usr/bin/env python3
@@ -201,7 +201,7 @@ def check_backend_discovery():
             try:
                 remote.select(found)
             except remote.UserError as error:
-                assert "--pid" in str(error)
+                assert "选择实例" in str(error) and "--pid" not in str(error)
             else:
                 raise AssertionError("multiple backends selected implicitly")
             assert remote.select(remote.discover(runs, pid=202)) == busy
@@ -211,8 +211,9 @@ def check_backend_discovery():
             stdout, stderr = io.StringIO(), io.StringIO()
             with patch.object(remote, "PROJECT", root), \
                     patch.object(remote.Path, "cwd", side_effect=AssertionError("default list inspected current directory")), \
+                    patch.object(remote.sys, "stdin", io.StringIO(json.dumps({"action": "list", "pid": 202}))), \
                     redirect_stdout(stdout), redirect_stderr(stderr):
-                assert remote.main(["list", "--pid", "202"]) == 0
+                assert remote.main() == 0
             assert json.loads(stdout.getvalue()) == [{"childPid": 202, "cwd": "/synthetic busy directory", "active": True}]
             assert stderr.getvalue() == ""
     print("PASS backend discover/list: initialized process without chats, metadata/PID checks, no thread/writer reads, explicit PID, no current-directory filter")
@@ -293,7 +294,7 @@ def operation(initial, action="connect", failure=None, other_connected=False, id
                 patch.object(remote, "wait_remote_status", side_effect=wait), \
                 patch.object(remote.Path, "cwd", side_effect=AssertionError("operation inspected current directory")), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
-            code = remote.main([action, "--pid", "101"])
+            code = remote.main({"action": action, "pid": 101})
         assert all(secret not in stdout.getvalue() + stderr.getvalue() for secret in secrets)
         report = json.loads(stdout.getvalue()) if stdout.getvalue() else None
         if report is not None:
@@ -409,7 +410,7 @@ def check_page():
                 patch.object(remote, "open_page", side_effect=OSError("SYNTHETIC_PAIRING_SECRET")), \
                 patch.object(remote, "call", side_effect=AssertionError("browser failure attempted Remote rollback")), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
-            assert remote.main(["pair", "--open"]) == 0
+            assert remote.main({"action": "pair", "open": True}) == 0
         operate.assert_called_once_with("pair", target)
         assert json.loads(stdout.getvalue()) == report and "手动打开" in stderr.getvalue()
         assert "SYNTHETIC_PAIRING_SECRET" not in stdout.getvalue() + stderr.getvalue()

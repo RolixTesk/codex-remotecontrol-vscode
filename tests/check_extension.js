@@ -73,6 +73,10 @@ async function checkTransport() {
   assert.equal(executed[0].options.encoding, 'buffer');
   nextError = new Error('synthetic child error');
   await assert.rejects(api.execute('python3', [literal]), /synthetic failure/);
+  nextError = undefined;
+  await api.execute('python3', [literal], { action: 'list', pid: undefined, open: false });
+  assert.deepEqual(executed.at(-1).args, [literal]);
+  assert.equal(executed.at(-1).input, '{"action":"list","open":false}', 'serialized requests omit an undefined PID');
 
   const listing = Buffer.from('\ufeffDebian\r\nUbuntu-24.04\r\nUbuntu-22.04\r\n', 'utf16le');
   assert.deepEqual(api.decodeWslList(listing), ['Debian', 'Ubuntu-24.04', 'Ubuntu-22.04']);
@@ -90,31 +94,36 @@ async function checkTransport() {
   const backend = await api.backend(packageRoot, 'win32', run);
   assert.equal(backend.distro, 'Ubuntu-24.04');
   assert.equal(Object.hasOwn(backend, 'linuxPath'), false, 'backend no longer exposes project path conversion');
+  assert.equal(Object.hasOwn(backend, 'cli'), false, 'backend exposes requests instead of a custom CLI');
   await backend.info();
   await backend.install(officialRoot, { wasSet: false, value: null });
   await backend.maintain(officialRoot, { wasSet: true, value: '/stable/wrapper/codex-wrapper' });
-  await backend.cli("/private/script space'中文.py", 'pair', 202, true);
+  await backend.request("/private/script space'中文.py", 'pair', 202, true);
   for (const call of calls.slice(1)) {
     assert.equal(call.command, 'wsl.exe');
     assert.deepEqual(call.args.slice(0, 3), ['-d', 'Ubuntu-24.04', '--exec']);
   }
   assert.deepEqual(calls[1].args, ['-d', 'Ubuntu-24.04', '--exec', 'wslpath', '-a', '-u', packageRoot]);
   assert.deepEqual(calls.at(-1).args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
-    "/private/script space'中文.py", 'pair', '--pid', '202', '--open']);
+    "/private/script space'中文.py"]);
+  assert.deepEqual(calls.at(-1).input, { action: 'pair', pid: 202, open: true });
   assert.deepEqual(calls.find(call => call.input).input, { wasSet: false, value: null });
   const maintenance = calls.find(call => call.args.includes('maintain'));
   assert.deepEqual(maintenance.args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
     "/mnt/c/package space'中文/scripts/deploy_backend.py", 'maintain', '--extension-root', "/mnt/c/official space'中文"]);
   assert.deepEqual(maintenance.input, { wasSet: true, value: '/stable/wrapper/codex-wrapper' });
-  await backend.cli("/private/script space'中文.py", 'list');
+  await backend.request("/private/script space'中文.py", 'list');
   assert.deepEqual(calls.at(-1).args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
-    "/private/script space'中文.py", 'list']);
-  await backend.cli("/private/script space'中文.py", 'connect', 202);
+    "/private/script space'中文.py"]);
+  assert.deepEqual(calls.at(-1).input, { action: 'list', pid: undefined, open: false });
+  await backend.request("/private/script space'中文.py", 'connect', 202);
   assert.deepEqual(calls.at(-1).args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
-    "/private/script space'中文.py", 'connect', '--pid', '202']);
-  await backend.cli("/private/script space'中文.py", 'pair', 202, true);
+    "/private/script space'中文.py"]);
+  assert.deepEqual(calls.at(-1).input, { action: 'connect', pid: 202, open: false });
+  await backend.request("/private/script space'中文.py", 'pair', 202, true);
   assert.deepEqual(calls.at(-1).args, ['-d', 'Ubuntu-24.04', '--exec', 'python3',
-    "/private/script space'中文.py", 'pair', '--pid', '202', '--open']);
+    "/private/script space'中文.py"]);
+  assert.deepEqual(calls.at(-1).input, { action: 'pair', pid: 202, open: true });
   await assert.rejects(api.transport('win32', async () => Buffer.from('Debian\n')), /Ubuntu/);
   const localCalls = [];
   const local = await api.backend("/package space'中文", 'linux', async (...args) => {
@@ -122,28 +131,29 @@ async function checkTransport() {
     return Buffer.from('{}');
   });
   assert.equal(Object.hasOwn(local, 'linuxPath'), false);
+  assert.equal(Object.hasOwn(local, 'cli'), false);
   const localHost = await api.transport('linux', async () => { throw new Error('unexpected local path command'); });
   assert.equal(await localHost.linuxPath("/local space'中文"), "/local space'中文");
   await local.info();
   await local.maintain("/official space'中文", { wasSet: true, value: '/stable/wrapper/codex-wrapper' });
-  await local.cli('/stable/scripts/remote.py', 'status', 101);
+  await local.request('/stable/scripts/remote_backend.py', 'status', 101);
   assert.deepEqual(localCalls, [
     ['python3', ["/package space'中文/scripts/deploy_backend.py", 'info'], undefined],
     ['python3', ["/package space'中文/scripts/deploy_backend.py", 'maintain', '--extension-root', "/official space'中文"],
       { wasSet: true, value: '/stable/wrapper/codex-wrapper' }],
-    ['python3', ['/stable/scripts/remote.py', 'status', '--pid', '101'], undefined],
+    ['python3', ['/stable/scripts/remote_backend.py'], { action: 'status', pid: 101, open: false }],
   ]);
   assert.equal(calls.some(call => call.args.includes('--workspace')), false);
   assert.equal(localCalls.some(call => call[1].includes('--workspace')), false);
-  console.log('PASS transport: UTF-16 first Ubuntu, explicit distro, local/WSL Python, PID-only CLI, private path conversion, literal argv/input without shell');
+  console.log('PASS transport: UTF-16 first Ubuntu, explicit distro, local/WSL Python, stdin JSON controller, private path conversion, literal argv/input without shell');
 }
 
 async function harness(options = {}) {
-  const managed = '/stable/wrapper/codex-wrapper';
+  const managed = options.managedWrapper || '/stable/wrapper/codex-wrapper';
   const state = { global: options.global, updates: [], calls: [], picks: [...(options.picks || [])],
     information: [], errors: [], warnings: [], opened: [], copied: [], quickPicks: [], status: undefined,
     officialRoot: options.officialRoot || "/official space'中文",
-    workspaceReads: 0,
+    workspaceReads: 0, authenticationReads: 0, wslSettingReads: 0,
     notifications: [], progress: { started: 0, completed: 0, active: 0 } };
   function notification(kind, args, result) {
     state[kind].push(kind === 'information' ? args : args[0]);
@@ -155,7 +165,7 @@ async function harness(options = {}) {
   const backup = Object.hasOwn(options, 'backup') ? options.backup : {
     wasSet: options.global !== undefined, value: options.global ?? null, managedValue: managed,
   };
-  const location = { installed: options.installed !== false, wrapper: managed, cli: '/stable/scripts/remote.py', backup };
+  const location = { installed: options.installed !== false, wrapper: managed, controller: options.controllerFile || '/stable/scripts/remote_backend.py', backup };
   const bridge = {
     distro: options.distro,
     async info() { state.calls.push(['info']); return options.info ? options.info(state, location) : location; },
@@ -166,10 +176,10 @@ async function harness(options = {}) {
       return options.maintain ? options.maintain(state, location)
         : { ...location, managed: true, updated: false, binaryChanged: false };
     },
-    async cli(...args) {
-      state.calls.push(['cli', ...args]);
+    async request(...args) {
+      state.calls.push(['request', ...args]);
       if (args[1] === 'list') return options.instances || [{ childPid: 101, cwd: '/backend cwd', active: false }];
-      if (options.cli) return options.cli(...args);
+      if (options.request) return options.request(...args);
       return { status: args[1] === 'disconnect' ? 'disabled' : 'connected', pairingPage: options.pairingPage || '/private/pairing.html' };
     },
   };
@@ -183,6 +193,7 @@ async function harness(options = {}) {
   const commands = new Map();
   const vscode = {
     StatusBarAlignment: { Right: 2 }, ConfigurationTarget: { Global: 1 }, ProgressLocation: { Notification: 15 },
+    get authentication() { state.authenticationReads++; throw new Error('unexpected account or authentication API access'); },
     env: { remoteName: Object.hasOwn(options, 'remoteName') ? options.remoteName : 'wsl', async openExternal(uri) {
       state.opened.push(uri);
       throw new Error('unexpected second browser opening by extension');
@@ -198,7 +209,7 @@ async function harness(options = {}) {
         assert.equal(namespace, 'chatgpt');
         return {
           inspect(key) { assert.equal(key, 'cliExecutable'); return { globalValue: state.global }; },
-          get(key) { assert.equal(key, 'runCodexInWindowsSubsystemForLinux'); return options.runInWsl !== false; },
+          get(key) { assert.equal(key, 'runCodexInWindowsSubsystemForLinux'); state.wslSettingReads++; return options.runInWsl !== false; },
           async update(key, value, target) { state.updates.push([key, value, target]); state.global = value; },
         };
       },
@@ -225,11 +236,11 @@ async function harness(options = {}) {
   const extension = load(path.join(root, 'extension/extension.js'), {
     vscode, './backend': { async backend(value) { state.calls.push(['backend', value]); return bridge; } },
   });
-  const context = { extensionPath: "/package space'中文", subscriptions: [] };
+  const context = { extensionPath: options.extensionPath || "/package space'中文", subscriptions: [] };
   await extension.activate(context);
   await flushCallbacks();
   assert.deepEqual([...commands.keys()].sort(), ['connect', 'disconnect', 'enable', 'pair', 'restore', 'status'].map(name => `codexRemote.${name}`).sort());
-  assert.equal(state.calls.some(call => ['cli', 'install'].includes(call[0])), false, 'activation never connects or enables');
+  assert.equal(state.calls.some(call => ['request', 'install'].includes(call[0])), false, 'activation never connects or enables');
   assert.deepEqual(state.updates, []);
   assert.equal(state.workspaceReads, 0);
   return { state, bridge, context, extension, command: name => commands.get(`codexRemote.${name}`)() };
@@ -282,7 +293,7 @@ async function checkCommands() {
     { childPid: 202, cwd: "/backend B'中文", active: true },
   ] });
   await app.command('connect');
-  assert.deepEqual(app.state.calls.filter(call => call[0] === 'cli').map(call => call.slice(2)),
+  assert.deepEqual(app.state.calls.filter(call => call[0] === 'request').map(call => call.slice(2)),
     [['list'], ['connect', 202, false]]);
   assert.match(app.state.status.text, /已启动/);
   assert.doesNotMatch(app.state.status.tooltip || '', /作用于|不限于|定位项目/);
@@ -292,14 +303,14 @@ async function checkCommands() {
   assert.doesNotMatch(app.state.information[0][0], /PID|作用于|不限于|定位项目/);
   const cancelledPid = await harness({ instances: [{ childPid: 101, cwd: '/backend A' }, { childPid: 202, cwd: '/backend B' }] });
   await cancelledPid.command('connect');
-  assert.deepEqual(cancelledPid.state.calls.filter(call => call[0] === 'cli').map(call => call[2]), ['list']);
+  assert.deepEqual(cancelledPid.state.calls.filter(call => call[0] === 'request').map(call => call[2]), ['list']);
   assert.equal(cancelledPid.state.quickPicks.length, 1);
   assert.deepEqual(cancelledPid.state.updates, []);
 
   for (const name of ['connect', 'status', 'disconnect', 'pair']) {
     const item = await harness();
     await item.command(name);
-    assert.deepEqual(item.state.calls.filter(call => call[0] === 'cli').map(call => call.slice(2)),
+    assert.deepEqual(item.state.calls.filter(call => call[0] === 'request').map(call => call.slice(2)),
       [['list'], [name, 101, name === 'pair']]);
     assert.match(item.state.status.text, name === 'disconnect' ? /未启动/ : /已启动/);
     assert.doesNotMatch(item.state.status.text, /已连接|未连接/);
@@ -312,19 +323,19 @@ async function checkCommands() {
     if (name === 'disconnect') assert.match(item.state.information[0][0], /已停止|未启动/);
     const absent = await harness({ instances: [] });
     await absent.command(name);
-    assert.deepEqual(absent.state.calls.filter(call => call[0] === 'cli').map(call => call.slice(2)), [['list']]);
+    assert.deepEqual(absent.state.calls.filter(call => call[0] === 'request').map(call => call.slice(2)), [['list']]);
     assert.match(absent.state.errors[0], /Codex.*面板/);
     assert.doesNotMatch(absent.state.errors[0], /项目|已加载.*聊天/);
     assert.equal(absent.state.workspaceReads, 0);
     assert.equal(absent.state.quickPicks.length, 0);
   }
   let finish;
-  const busy = await harness({ cli: () => new Promise(resolve => { finish = resolve; }) });
+  const busy = await harness({ request: () => new Promise(resolve => { finish = resolve; }) });
   const first = busy.command('connect');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(typeof finish, 'function');
   await busy.command('disconnect');
-  assert.deepEqual(busy.state.calls.filter(call => call[0] === 'cli').map(call => call[2]), ['list', 'connect']);
+  assert.deepEqual(busy.state.calls.filter(call => call[0] === 'request').map(call => call[2]), ['list', 'connect']);
   finish({ status: 'connected' });
   await first;
   assert.match(busy.state.information[0][0], /正在执行/);
@@ -335,14 +346,14 @@ async function checkCommands() {
   await flushCallbacks();
   assert.deepEqual(opened.state.copied, ['file://wsl.localhost/Ubuntu-24.04/private/pairing.html']);
   assert.deepEqual(opened.state.opened, []);
-  assert.deepEqual(opened.state.calls.filter(call => call[0] === 'cli').map(call => call[2]), ['list', 'pair']);
+  assert.deepEqual(opened.state.calls.filter(call => call[0] === 'request').map(call => call[2]), ['list', 'pair']);
   const fallback = await harness({ informationChoice: '复制网页链接', distro: 'Ubuntu Preview',
     pairingPage: '/private/pair page 中文?#.html' });
   await fallback.command('pair');
   await flushCallbacks();
   assert.deepEqual(fallback.state.copied, ['file://wsl.localhost/Ubuntu%20Preview/private/pair%20page%20%E4%B8%AD%E6%96%87%3F%23.html']);
   assert.deepEqual(fallback.state.opened, []);
-  assert.deepEqual(fallback.state.calls.filter(call => call[0] === 'cli').map(call => call[2]), ['list', 'pair']);
+  assert.deepEqual(fallback.state.calls.filter(call => call[0] === 'request').map(call => call[2]), ['list', 'pair']);
   console.log('PASS pairing copy: same existing page URI, WSL distro and encoded path, no browser reopening or repeated RPC');
 }
 
@@ -355,10 +366,10 @@ async function checkNotificationLifecycle() {
     assert.equal(app.state.notifications.length, 1, 'notification remains undismissed');
     assert.deepEqual(app.state.progress, { started: 1, completed: 1, active: 0 });
     await completes(app.command('status'), `${action} followed by status`);
-    assert.equal(app.state.calls.filter(call => call[0] === 'cli' && call[2] === 'status').length, 1);
+    assert.equal(app.state.calls.filter(call => call[0] === 'request' && call[2] === 'status').length, 1);
     assert.deepEqual(app.state.progress, { started: 2, completed: 2, active: 0 });
   }
-  const failure = await harness({ deferNotifications: true, cli: async (_script, action) => {
+  const failure = await harness({ deferNotifications: true, request: async (_script, action) => {
     if (action === 'connect') throw new Error('synthetic backend failure');
     return { status: 'connected' };
   } });
@@ -377,7 +388,7 @@ async function checkNotificationLifecycle() {
   await flushCallbacks();
   assert.deepEqual(pair.state.copied, ['file://wsl.localhost/Ubuntu-24.04/private/pairing.html']);
   assert.deepEqual(pair.state.opened, []);
-  assert.equal(pair.state.calls.filter(call => call[0] === 'cli' && call[2] === 'pair').length, 1);
+  assert.equal(pair.state.calls.filter(call => call[0] === 'request' && call[2] === 'pair').length, 1);
   assert.deepEqual(pair.state.progress, { started: 2, completed: 2, active: 0 });
 
   const unhandled = [];
@@ -395,18 +406,18 @@ async function checkNotificationLifecycle() {
       await flushCallbacks();
       assert.match(app.state.errors[0], /配对页链接未复制/);
       await completes(app.command('status'), `${mode} followed by status`);
-      assert.equal(app.state.calls.filter(call => call[0] === 'cli' && call[2] === 'pair').length, 1);
+      assert.equal(app.state.calls.filter(call => call[0] === 'request' && call[2] === 'pair').length, 1);
     }
     assert.deepEqual(unhandled, []);
   } finally { process.removeListener('unhandledRejection', recordUnhandled); }
 
   const backendWork = deferred();
-  const busy = await harness({ deferNotifications: true, cli: () => backendWork.promise });
+  const busy = await harness({ deferNotifications: true, request: () => backendWork.promise });
   const first = busy.command('connect');
   await flushCallbacks();
   const duplicate = busy.command('disconnect');
   await flushCallbacks();
-  assert.deepEqual(busy.state.calls.filter(call => call[0] === 'cli').map(call => call[2]), ['list', 'connect']);
+  assert.deepEqual(busy.state.calls.filter(call => call[0] === 'request').map(call => call[2]), ['list', 'connect']);
   assert.deepEqual(busy.state.progress, { started: 1, completed: 0, active: 1 });
   assert.match(busy.state.information[0][0], /正在执行/);
   busy.state.notifications[0].resolve();
@@ -422,7 +433,7 @@ async function checkPairingCopy() {
     const clipboardWork = deferred();
     const app = await harness({ deferNotifications: true, distro: 'Ubuntu-24.04',
       clipboardWork,
-      cli: async (_script, action) => ({ status: 'connected',
+      request: async (_script, action) => ({ status: 'connected',
         ...(action === 'pair' ? { qrAvailable, pairingPage: '/private/pairing.html' } : {}) }),
     });
     await completes(app.command('pair'), 'copy before selecting notification');
@@ -436,10 +447,10 @@ async function checkPairingCopy() {
     assert.deepEqual(app.state.copied, ['file://wsl.localhost/Ubuntu-24.04/private/pairing.html']);
     assert.deepEqual(app.state.opened, []);
     await completes(app.command('status'), 'pending clipboard work followed by status');
-    const pairCalls = app.state.calls.filter(call => call[0] === 'cli' && call[2] === 'pair');
+    const pairCalls = app.state.calls.filter(call => call[0] === 'request' && call[2] === 'pair');
     assert.equal(pairCalls.length, 1);
-    assert.equal(pairCalls[0].at(-1), true, 'backend pair --open remains responsible for initial browser opening');
-    assert.equal(app.state.calls.filter(call => call[0] === 'cli' && call[2] === 'status').length, 1);
+    assert.equal(pairCalls[0].at(-1), true, 'backend pair open=true remains responsible for initial browser opening');
+    assert.equal(app.state.calls.filter(call => call[0] === 'request' && call[2] === 'status').length, 1);
     assert.deepEqual(app.state.progress, { started: 2, completed: 2, active: 0 });
     clipboardWork.resolve();
     await flushCallbacks();
@@ -450,7 +461,7 @@ async function checkPairingCopy() {
   await flushCallbacks();
   assert.deepEqual(local.state.copied, ['file:///private/pairing.html']);
   assert.deepEqual(local.state.opened, []);
-  console.log('PASS pairing copy button: single choice, existing local/WSL file URI, one pair --open, delayed clipboard work releases progress and busy');
+  console.log('PASS pairing copy button: single choice, existing local/WSL file URI, one pair request with open=true, delayed clipboard work releases progress and busy');
 }
 
 async function checkMaintenance() {
@@ -462,7 +473,7 @@ async function checkMaintenance() {
   assert.deepEqual(app.state.calls.find(call => call[0] === 'maintain').slice(1),
     ["/official space'中文", { wasSet: true, value: managed }]);
   assert.deepEqual(app.state.updates, []);
-  assert.equal(app.state.calls.some(call => call[0] === 'cli'), false);
+  assert.equal(app.state.calls.some(call => call[0] === 'request'), false);
   app.state.officialRoot = "/new official version space'中文";
   await app.command('connect');
   assert.equal(count(app), 2, 'connect refreshes managed backend path');
@@ -529,7 +540,93 @@ async function checkMaintenance() {
   console.log('PASS managed maintenance: activation/connect/pair refresh current official path, no settings/reload/auto-connect, preserve backup and external settings, status/disconnect/restore skip maintenance, failures keep restore usable');
 }
 
+async function checkNativeLinux() {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const hadDistro = Object.hasOwn(process.env, 'WSL_DISTRO_NAME');
+  const previousDistro = process.env.WSL_DISTRO_NAME;
+  try {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    delete process.env.WSL_DISTRO_NAME;
+    const version = require(path.join(root, 'package.json')).version;
+    const packageRoot = `/home/native-user/.vscode/extensions/rolix.codex-live-remote-${version}`;
+    const officialRoot = '/home/native-user/.vscode/extensions/openai.chatgpt-26.1007.21434-linux-x64';
+    const managed = '/home/native-user/.local/share/codex-remotecontrol/vscode/wrapper/codex-wrapper';
+    const controller = '/home/native-user/.local/share/codex-remotecontrol/vscode/scripts/remote_backend.py';
+    const info = { installed: true, wrapper: managed, controller };
+    const instances = [{ childPid: 501, cwd: '/home/native-user/project', active: false }];
+    const calls = [];
+    const api = load(path.join(root, 'extension/backend.js'), {
+      'node:child_process': { execFile() { throw new Error('unexpected real child process'); } },
+    });
+    const bridge = await api.backend(packageRoot, process.platform, async (command, args, input) => {
+      calls.push([command, args, input]);
+      assert.equal(command, 'python3');
+      assert.equal(args.includes('wslpath'), false);
+      assert.equal(args.includes('--workspace'), false);
+      return Buffer.from(JSON.stringify(input?.action === 'list' ? instances : info));
+    });
+    assert.equal(bridge.distro, undefined);
+    assert.deepEqual(await bridge.info(), info);
+    await bridge.install(officialRoot, { wasSet: false, value: null });
+    await bridge.maintain(officialRoot, { wasSet: true, value: managed });
+    assert.deepEqual(await bridge.request(controller, 'list'), instances);
+    assert.deepEqual(calls, [
+      ['python3', [`${packageRoot}/scripts/deploy_backend.py`, 'info'], undefined],
+      ['python3', [`${packageRoot}/scripts/deploy_backend.py`, 'install', '--extension-root', officialRoot],
+        { wasSet: false, value: null }],
+      ['python3', [`${packageRoot}/scripts/deploy_backend.py`, 'maintain', '--extension-root', officialRoot],
+        { wasSet: true, value: managed }],
+      ['python3', [controller], { action: 'list', pid: undefined, open: false }],
+    ]);
+    console.log('PASS native Linux transport: Ubuntu extension paths, direct python3 info/install/maintain/list, no WSL or workspace arguments');
+
+    const original = '/home/native-user/bin/original-codex';
+    const options = { remoteName: undefined, runInWsl: false, officialRoot, extensionPath: packageRoot,
+      managedWrapper: managed, controllerFile: controller };
+    const configured = await harness({ ...options, global: original });
+    await configured.command('enable');
+    assert.deepEqual(configured.state.calls.find(call => call[0] === 'install').slice(1),
+      [officialRoot, { wasSet: true, value: original }]);
+    assert.deepEqual(configured.state.updates, [['cliExecutable', managed, 1]]);
+    assert.ok(configured.state.calls.filter(call => call[0] === 'backend').every(call => call[1] === packageRoot));
+    assert.equal(configured.state.wslSettingReads, 0, 'native Linux does not require the Windows WSL setting');
+    assert.equal(configured.state.authenticationReads, 0);
+    assert.equal(configured.state.calls.some(call => call[0] === 'request'), false, 'enable does not start Remote');
+    await configured.command('restore');
+    assert.equal(configured.state.global, original);
+    assert.deepEqual(configured.state.errors, []);
+    console.log('PASS native Linux configuration: real activation commands use Linux official extension and Global wrapper, preserve restore backup, no account or Windows WSL setting');
+
+    const found = await harness({ ...options, instances });
+    await found.command('status');
+    assert.deepEqual(found.state.calls.filter(call => call[0] === 'request'),
+      [['request', controller, 'list'], ['request', controller, 'status', 501, false]]);
+    assert.equal(found.state.quickPicks.length, 0);
+    assert.equal(found.state.workspaceReads, 0);
+    assert.equal(found.state.authenticationReads, 0);
+    assert.deepEqual(found.state.errors, []);
+    const multiple = await harness({ ...options, picks: [1], instances: [...instances,
+      { childPid: 502, cwd: '/home/native-user/other-project', active: false }] });
+    await multiple.command('status');
+    assert.equal(multiple.state.quickPicks.length, 1);
+    assert.deepEqual(multiple.state.calls.filter(call => call[0] === 'request'),
+      [['request', controller, 'list'], ['request', controller, 'status', 502, false]]);
+    assert.deepEqual(multiple.state.errors, []);
+    assert.equal(multiple.state.authenticationReads, 0);
+    assert.equal(multiple.state.calls.some(call => call[0] === 'request' && ['connect', 'pair', 'disconnect'].includes(call[2])), false);
+    console.log('PASS native Linux local discovery: original backend without loaded chats/workspace, one optional instance choice, read-only status, no account or Remote start/pair/stop');
+  } finally {
+    Object.defineProperty(process, 'platform', platform);
+    if (hadDistro) process.env.WSL_DISTRO_NAME = previousDistro;
+    else delete process.env.WSL_DISTRO_NAME;
+  }
+}
+
 (async () => {
+  if (process.argv.includes('--linux-only')) {
+    await checkNativeLinux();
+    return;
+  }
   if (process.argv.includes('--manifest')) {
     checkManifest();
     return;
@@ -557,4 +654,5 @@ async function checkMaintenance() {
   await checkNotificationLifecycle();
   await checkPairingCopy();
   await checkMaintenance();
+  await checkNativeLinux();
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Connect a phone to an existing VS Code Codex backend."""
+"""Internal JSON worker for the VS Code extension's Remote commands."""
 
-import argparse
 import json
 import os
 from pathlib import Path
@@ -38,7 +37,7 @@ def select(found):
         raise UserError("未找到可连接的 Codex。请打开 Codex 面板后重试；首次启用接入后请先重载窗口。")
     pids = sorted({item["childPid"] for item in found})
     if len(pids) != 1:
-        raise UserError(f"发现多个 Codex：{pids}。运行 list 查看，再用 --pid 选择。")
+        raise UserError("发现多个 Codex。请重新运行命令并选择实例。")
     return found[0]
 
 
@@ -47,11 +46,11 @@ def validate(target):
     meta = json.loads((Path(target["socket"]).parent / "process.json").read_text())
     pid = target["childPid"]
     if not status["initialized"] or status["childPid"] != pid or meta["childPid"] != pid:
-        raise UserError("Codex 已关闭或重新启动。请重新运行 list 并选择。")
+        raise UserError("Codex 已关闭或重新启动。请重新运行命令并选择实例。")
 
 
 def check_other_connections(target):
-    # Both verified hosts registered the same environment: connect one owner at a time.
+    # Keep a second owner from replacing the existing Remote connection.
     path = Path(target["socket"])
     for other in path.parent.parent.glob("*/control.sock"):
         if str(other) == str(path):
@@ -127,24 +126,22 @@ def open_page(page):
         raise UserError("没有找到可用的浏览器。")
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("list", "connect", "pair", "status", "disconnect"))
-    parser.add_argument("--pid", type=int, help="多个 Codex 实例时选择 list 显示的进程 ID")
-    parser.add_argument("--open", action="store_true", help="配对后用默认浏览器打开私有页面（仅 pair）")
-    args = parser.parse_args(argv)
-    if args.open and args.action != "pair":
-        parser.error("--open 只用于 pair")
+def main(request=None):
     try:
+        if request is None:
+            request = json.load(sys.stdin)
+        action = request["action"]
+        if action not in ("list", "connect", "pair", "status", "disconnect"):
+            raise UserError("未知远程控制操作。")
         config = json.loads((PROJECT / "wrapper/codex-wrapper.local.json").read_text())
-        found = discover(Path(config["captureRoot"]), args.pid)
-        if args.action == "list":
+        found = discover(Path(config["captureRoot"]), request.get("pid"))
+        if action == "list":
             print(json.dumps([{k: v for k, v in item.items() if k != "socket"} for item in found],
                              ensure_ascii=False, indent=2))
         else:
-            report = operate(args.action, select(found))
+            report = operate(action, select(found))
             print(json.dumps(report, ensure_ascii=False, indent=2))
-            if args.open:
+            if action == "pair" and request.get("open"):
                 try:
                     open_page(report["pairingPage"])
                 except Exception:
@@ -153,7 +150,7 @@ def main(argv=None):
     except UserError as exc:
         print(str(exc), file=sys.stderr)
     except Exception as exc:
-        print(f"操作未完成（{type(exc).__name__}）。请检查窗口和配置；写请求结果可能未知，不要自动重试。",
+        print(f"操作未完成（{type(exc).__name__}）。请检查窗口和配置；写请求结果可能未知，请先查询状态。",
               file=sys.stderr)
     return 1
 

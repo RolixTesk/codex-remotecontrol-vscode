@@ -1,6 +1,6 @@
 # 命令说明
 
-适用于 Codex Live Remote 0.1.7。按 `Ctrl+Shift+P`，输入 `Codex Remote` 查找命令。
+适用于 Codex Live Remote 0.1.9。按 `Ctrl+Shift+P`，输入 `Codex Remote` 查找命令。
 
 ## 插件命令
 
@@ -15,7 +15,7 @@
 
 ## 配置远程控制
 
-首次使用时运行一次，完成配置并备份原 Codex 启动设置。Windows 本地窗口需要官方 Codex 已启用通过 WSL 运行。
+首次使用时运行一次，完成配置并备份原 Codex 启动设置。此步骤不要求登录。Ubuntu 本地窗口直接使用已安装的官方扩展；Windows 本地窗口需要官方 Codex 已启用通过 WSL 运行。
 
 完成后状态栏显示“等待重载”。等任务结束，运行 **Developer: Reload Window**，再打开 Codex 并运行 **启动远程控制**。当前任务继续运行，新设置在后续启动时生效。
 
@@ -23,7 +23,7 @@
 
 ## 启动远程控制
 
-Codex 启动并就绪后即可连接，无需打开聊天或项目。只有一个可用实例时直接连接；多个实例时选择要使用的 Codex，列表会显示启动目录和任务状态以便区分。取消选择会结束本次操作。
+登录并启动 Codex 后即可连接，无需打开聊天或项目。只有一个可用实例时直接连接；多个实例时选择要使用的 Codex，列表会显示启动目录和任务状态以便区分。取消选择会结束本次操作。
 
 连接完成后状态栏显示“已启动”。手机在 ChatGPT 的 Codex / Remote 中选择主机和聊天；要继续桌面任务，选择桌面正在使用的聊天。
 
@@ -68,31 +68,6 @@ Codex 启动并就绪后即可连接，无需打开聊天或项目。只有一�
 命令会检查当前设置。若已被其他操作修改，会提示并保留当前值；自动更新也不会重新启用已恢复的配置。恢复后，等任务结束再重载窗口并卸载插件。
 
 要直接使用官方默认 Codex，可删除 User Settings 中的 `chatgpt.cliExecutable` 并重载。
-
-## CLI 命令
-
-在 WSL 终端运行，不需要进入某个项目目录。`codex-remote` 是 `scripts/remote.py` 的短命令；没有安装短命令时使用 `python3 /此项目/scripts/remote.py`。
-
-| 命令 | 效果 |
-|---|---|
-| `codex-remote list` | 列出已启动且可连接的 Codex，无需加载聊天 |
-| `codex-remote connect` | 启动远程控制；多个实例需指定 `--pid` |
-| `codex-remote pair --open` | 申请新配对码并尝试打开配对页 |
-| `codex-remote status` | 查询连接状态，可能附带配对是否完成的结果 |
-| `codex-remote disconnect` | 断开手机连接 |
-
-`list` 显示 `childPid`（进程 ID）、`cwd`（启动目录）和 `active`（是否有任务运行）。多个实例时用进程 ID 指定目标：
-
-```sh
-codex-remote list
-codex-remote connect --pid 12345
-codex-remote status --pid 12345
-codex-remote disconnect --pid 12345
-```
-
-示例 ID 替换为 `list` 中的当前值，重开窗口后可能变化。
-
-成功返回退出码 `0`，业务错误为 `1`，参数错误为 `2`。配对页生成成功而浏览器未打开时仍视为成功，按提示打开页面即可。启用/恢复设置使用插件命令。
 
 ## 常见问题
 

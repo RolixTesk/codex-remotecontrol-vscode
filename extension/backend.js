@@ -60,10 +60,7 @@ async function backend(packageRoot, platform = process.platform, run = execute) 
     async maintain(officialRoot, previous) {
       return host.python(deploy, ['maintain', '--extension-root', await host.linuxPath(officialRoot)], previous);
     },
-    cli: (file, action, pid, open = false) => host.python(file, [
-      action,
-      ...(pid === undefined ? [] : ['--pid', String(pid)]), ...(open ? ['--open'] : []),
-    ]),
+    request: (file, action, pid, open = false) => host.python(file, [], { action, pid, open }),
   };
 }
 

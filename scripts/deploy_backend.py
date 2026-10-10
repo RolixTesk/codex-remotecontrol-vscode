@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 FILES = ("wrapper/codex-wrapper", "wrapper/control.py", "wrapper/protocol.py",
-         "scripts/remote.py", "scripts/pair_remote.py", "scripts/control_client.py") + tuple(
+         "scripts/remote_backend.py", "scripts/pair_remote.py", "scripts/control_client.py") + tuple(
     "scripts/vendor/qrcode/" + name for name in (
         '__init__.py',
         'base.py',
@@ -54,7 +54,7 @@ def locations():
 def info():
     base, backup = locations()
     result = {"wrapper": str(base / "wrapper/codex-wrapper"),
-              "cli": str(base / "scripts/remote.py"),
+              "controller": str(base / "scripts/remote_backend.py"),
               "installed": all((base / name).is_file() for name in FILES)
               and (base / "wrapper/codex-wrapper.local.json").is_file()}
     if backup.exists():
@@ -101,6 +101,7 @@ def install(source, official, previous):
         atomic_write(base / name, data, 0o700 if name == "wrapper/codex-wrapper" else 0o600)
     atomic_write(config_path, (json.dumps(config, indent=2) + "\n").encode())
     atomic_write(backup_path, (json.dumps(backup) + "\n").encode())
+    (base / "scripts/remote.py").unlink(missing_ok=True)
     return info()
 
 
@@ -126,10 +127,13 @@ def maintain(source, official, previous):
                if not (base / name).is_file() or (base / name).read_bytes() != data}
     for name, data in changed.items():
         atomic_write(base / name, data, 0o700 if name == "wrapper/codex-wrapper" else 0o600)
+    legacy_cli = base / "scripts/remote.py"
+    removed_cli = legacy_cli.exists()
+    legacy_cli.unlink(missing_ok=True)
     if binary_changed:
         config["realExecutable"] = executable
         atomic_write(config_path, (json.dumps(config, indent=2) + "\n").encode())
-    return dict(info(), managed=True, updated=bool(changed) or binary_changed, binaryChanged=binary_changed)
+    return dict(info(), managed=True, updated=bool(changed) or binary_changed or removed_cli, binaryChanged=binary_changed)
 
 
 def main():

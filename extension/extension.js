@@ -18,7 +18,7 @@ async function activate(context) {
 
   async function getBackend() {
     if (vscode.env.remoteName && vscode.env.remoteName !== 'wsl') {
-      throw new Error('当前版本支持 Windows + WSL 和 Remote-WSL 窗口。');
+      throw new Error('请在 Ubuntu 本地、Windows + WSL 或 Remote-WSL 窗口使用。');
     }
     return backend(context.extensionPath);
   }
@@ -40,7 +40,7 @@ async function activate(context) {
     let location = await bridge.info();
     if (action === 'connect' || action === 'pair') location = await maintain(bridge, location);
     if (!location.installed) throw new Error('请先运行“Codex Remote: 配置远程控制”。');
-    const instances = await bridge.cli(location.cli, 'list');
+    const instances = await bridge.request(location.controller, 'list');
     if (!instances.length) throw new Error('未找到可连接的 Codex。请打开 Codex 面板后重试。');
     const pid = instances.length === 1 ? instances[0].childPid : (await vscode.window.showQuickPick(
       instances.map(instance => ({ label: `Codex ${instance.childPid}`, description: instance.cwd,
@@ -48,7 +48,7 @@ async function activate(context) {
       { title: '选择 Codex' },
     ))?.pid;
     if (pid === undefined) return;
-    const report = await bridge.cli(location.cli, action, pid, action === 'pair');
+    const report = await bridge.request(location.controller, action, pid, action === 'pair');
     status.text = `$(device-mobile) Codex Remote：${report.status === 'connected' ? '已启动' : report.status === 'disabled' ? '未启动' : report.status}`;
     status.tooltip = '点击查看远程控制状态';
     if (action === 'pair') {
