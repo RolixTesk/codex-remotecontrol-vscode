@@ -1,4 +1,4 @@
-"""A private test socket sharing the VS Code-owned app-server's stdio."""
+"""A private control socket sharing the VS Code-owned app-server's stdio."""
 
 import json
 import os
@@ -21,7 +21,7 @@ def error(message):
 
 class Control:
     def __init__(self, path, cwd, child_pid, write):
-        self.path, self.cwd, self.child_pid, self.write = Path(path), str(cwd), child_pid, write
+        self.path, self.cwd, self.child_pid, self.write = Path(path), cwd, child_pid, write
         self.lock = threading.Lock()
         self.pending, self.owned, self.vscode_requests = {}, set(), {}
         self.ready, self.closed = False, False
@@ -51,7 +51,7 @@ class Control:
             return raw
         if "id" in m and type(m["id"]) not in (str, int):
             return raw
-        # Server requests keep their original IDs and are answered by VS Code only.
+        # Keep original server request IDs; this control socket never answers them.
         if "method" not in m and m.get("id") in self.owned:
             waiter = self.pending.pop(m["id"], None)
             if waiter is not None:
@@ -65,7 +65,8 @@ class Control:
             self.ready = "result" in m and "error" not in m
         elif method in ("thread/start", "thread/resume"):
             thread = m.get("result", {}).get("thread", {})
-            if same_directory(thread.get("cwd"), self.cwd) and thread.get("ephemeral") is not True:
+            if ((self.cwd is None or same_directory(thread.get("cwd"), self.cwd))
+                    and thread.get("ephemeral") is not True):
                 self.threads.add(thread["id"])
         params = m.get("params") or {}
         thread_id = params.get("threadId")
@@ -86,11 +87,11 @@ class Control:
                                "threads": sorted(self.threads), "activeTurns": dict(self.active)}}
         params = request.get("params", {})
         if not isinstance(method, str) or method not in METHODS or not isinstance(params, dict):
-            return error("Method is outside this experiment")
+            return error("Method is outside the control allowlist")
         if not self.ready or self.closed:
             return error("VS Code initialization is not ready or the connection closed")
         if method in ("thread/read", "turn/steer") and params.get("threadId") not in self.threads:
-            return error("Thread is not loaded from the disposable workspace")
+            return error("Thread is not loaded in this control scope")
         if method == "turn/steer":
             if not params.get("expectedTurnId") or self.active.get(params["threadId"]) != params["expectedTurnId"]:
                 return error("Expected turn is not the observed active turn")
@@ -98,10 +99,10 @@ class Control:
                 return error("Steering input is required")
         if (method in ("remoteControl/enable", "remoteControl/disable")
                 and (set(params) != {"ephemeral"} or params["ephemeral"] is not True)):
-            return error("Remote experiment requires ephemeral=true")
+            return error("Remote control requires ephemeral=true")
         if (method == "remoteControl/pairing/start"
                 and (set(params) != {"manualCode"} or params["manualCode"] is not True)):
-            return error("Pairing experiment requires manualCode=true")
+            return error("Pairing requires manualCode=true")
         if (method == "remoteControl/pairing/status"
                 and (set(params) != {"pairingCode"} or not isinstance(params["pairingCode"], str)
                      or not params["pairingCode"])):
@@ -112,7 +113,7 @@ class Control:
             if self.closed:
                 return error("App-server connection closed")
             self.pending[request_id] = waiter
-            # ponytail: keep issued IDs for this short experiment so late replies never reach VS Code.
+            # ponytail: retain IDs until app-server exit so even late replies stay private.
             self.owned.add(request_id)
             raw = json.dumps({"id": request_id, "method": method, "params": params}).encode() + b"\n"
             try:

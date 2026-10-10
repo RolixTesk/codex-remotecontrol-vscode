@@ -1,0 +1,66 @@
+{
+  "name": "codex-live-remote",
+  "displayName": "Codex Live Remote",
+  "description": "Connect ChatGPT mobile Remote to the existing official VS Code Codex session.",
+  "version": "0.1.2",
+  "publisher": "rolix",
+  "engines": {
+    "vscode": "^1.140.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexRemote.enable",
+        "title": "启用 / 更新接入",
+        "category": "Codex Remote"
+      },
+      {
+        "command": "codexRemote.connect",
+        "title": "连接当前项目",
+        "category": "Codex Remote"
+      },
+      {
+        "command": "codexRemote.pair",
+        "title": "配对手机",
+        "category": "Codex Remote"
+      },
+      {
+        "command": "codexRemote.status",
+        "title": "查看连接状态",
+        "category": "Codex Remote"
+      },
+      {
+        "command": "codexRemote.disconnect",
+        "title": "断开当前项目",
+        "category": "Codex Remote"
+      },
+      {
+        "command": "codexRemote.restore",
+        "title": "恢复接入前配置（卸载前）",
+        "category": "Codex Remote"
+      }
+    ]
+  },
+  "scripts": {
+    "package": "vsce package --out dist/codex-live-remote-0.1.2.vsix --allow-missing-repository --no-rewrite-relative-links --skip-license --no-dependencies && python3 tests/check_vsix.py"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.0.0"
+  }
+}

@@ -27,18 +27,27 @@ def main():
         }))
         anchor = {"socket": str(captures / "run" / "control.sock"),
                   "childPid": 101, "threadId": "synthetic-thread"}
+        prior = private / "live-probe.private.json"
+        prior.write_text(json.dumps({
+            "read": {"result": {"thread": {"id": "other-loaded-thread"}}},
+            "activeRead": {"result": {"thread": {"id": anchor["threadId"]}}},
+            "steer": {"result": {"turnId": "synthetic-turn"}},
+        }))
+        prior.chmod(0o600)
         secrets = ["SYNTHETIC_PAIRING_SECRET", "SYNTHETIC_MANUAL_SECRET", "SYNTHETIC_HOST_SECRET"]
         remote = {"status": "connected", "serverName": secrets[2], "environmentId": "synthetic-environment"}
         pairing = {"pairingCode": secrets[0], "manualPairingCode": secrets[1], "expiresAt": 123456}
 
-        def run(action, fail_pairing=False, writer=101):
+        def run(action, fail_pairing=False, writer=101, thread_id=None):
+            selected = dict(anchor, threadId=thread_id or anchor["threadId"])
+
             def request(path, method, params=None):
                 assert path == anchor["socket"]
                 if method == "status":
                     return {"result": {"childPid": anchor["childPid"]}}
                 if method == "thread/read":
-                    assert params == {"threadId": anchor["threadId"], "includeTurns": False}
-                    return {"result": {"thread": {"id": anchor["threadId"], "cwd": str(workspace), "ephemeral": False}}}
+                    assert params == {"threadId": selected["threadId"], "includeTurns": False}
+                    return {"result": {"thread": {"id": selected["threadId"], "cwd": str(workspace), "ephemeral": False}}}
                 if method == "remoteControl/status/read":
                     return {"result": {"status": "connected" if action == "status" else "disabled"}}
                 if method in ("remoteControl/enable", "remoteControl/disable"):
@@ -56,14 +65,14 @@ def main():
 
             output = io.StringIO()
             with patch.object(pair_remote, "PROJECT", project), \
-                    patch.object(pair_remote, "locate", return_value=dict(anchor)) as locate, \
+                    patch.object(pair_remote, "locate", return_value=selected) as locate, \
                     patch.object(pair_remote, "call", side_effect=request) as calls, \
                     patch.object(pair_remote, "owners", side_effect=lambda thread: [writer]
-                                 if thread == anchor["threadId"] else []) as owners, \
+                                 if thread == selected["threadId"] else []) as owners, \
                     patch.object(pair_remote, "wait_remote_status", side_effect=lambda path, desired, seconds:
                                  dict(remote) if desired == "connected" else {"status": "disabled"}) as wait, \
                     redirect_stdout(output):
-                code = pair_remote.main(action)
+                code = pair_remote.main(action, thread_id)
             report = json.loads((project / "evidence/native-remote-pairing.json").read_text())
             assert json.loads(output.getvalue()) == report
             assert all(secret not in output.getvalue() for secret in secrets), "credential reached stdout"
@@ -82,7 +91,7 @@ def main():
             call(anchor["socket"], "remoteControl/pairing/start", {"manualCode": True}),
             call(anchor["socket"], "status"),
         ]
-        locate.assert_called_once_with(captures, workspace)
+        locate.assert_called_once_with(captures, workspace, anchor["threadId"], None)
         wait.assert_called_once_with(anchor["socket"], "connected", 45)
         folder = private / "pairing"
         assert folder.stat().st_mode & 0o777 == 0o700
@@ -119,6 +128,57 @@ def main():
         assert calls.call_args_list == [call(anchor["socket"], "status")]
         wait.assert_not_called()
         print("PASS changed writer is rejected before Remote enable/pairing")
+
+        prior.unlink()
+        ui_thread = "synthetic-new-ui-thread"
+        code, report, calls, locate, _, _ = run("start", thread_id=ui_thread)
+        assert code == 0 and report["completed"] and not prior.exists()
+        locate.assert_called_once_with(captures, workspace, ui_thread, None)
+        assert call(anchor["socket"], "thread/read", {"threadId": ui_thread, "includeTurns": False}) in calls.call_args_list
+        assert json.loads((folder / "state.json").read_text())["threadId"] == ui_thread
+        code, report, calls, locate, _, wait = run("start", writer=202, thread_id=ui_thread)
+        assert code == 1 and not report["completed"]
+        locate.assert_called_once_with(captures, workspace, ui_thread, None)
+        assert calls.call_args_list == [call(anchor["socket"], "status")]
+        wait.assert_not_called()
+        print("PASS explicit UI thread works without prior; wrong owner is rejected before enable")
+
+        capture_run = Path(anchor["socket"]).parent
+        capture_run.mkdir()
+        Path(anchor["socket"]).touch()
+        (capture_run / "process.json").write_text(json.dumps({"childPid": 101, "cwd": str(workspace)}))
+        status = {"result": {"initialized": True, "childPid": 101,
+                             "threads": ["other-loaded-thread", anchor["threadId"], "third-loaded-thread"]}}
+        with patch.object(pair_remote, "call", return_value=status) as calls, \
+                patch.object(pair_remote, "owners", return_value=[101]) as owners:
+            assert pair_remote.locate(captures, workspace, anchor["threadId"]) == anchor
+            calls.assert_called_once_with(Path(anchor["socket"]), "status")
+            owners.assert_called_once_with(anchor["threadId"])
+        with patch.object(pair_remote, "call", return_value=status) as calls, \
+                patch.object(pair_remote, "owners", return_value=[202]):
+            try:
+                pair_remote.locate(captures, workspace, anchor["threadId"])
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("specified thread with a different writer was accepted")
+            calls.assert_called_once_with(Path(anchor["socket"]), "status")
+        print("PASS three loaded threads select the successful steer thread; a different writer is rejected")
+
+        launch, wrong_launch = root / "launch", root / "wrong-launch"
+        launch.mkdir()
+        wrong_launch.mkdir()
+        (capture_run / "process.json").write_text(json.dumps({"childPid": 101, "cwd": str(launch)}))
+        with patch.object(pair_remote, "call", return_value=status), \
+                patch.object(pair_remote, "owners", return_value=[101]):
+            assert pair_remote.locate(captures, workspace, anchor["threadId"], launch) == anchor
+            try:
+                pair_remote.locate(captures, workspace, anchor["threadId"], wrong_launch)
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("wrong app-server launch directory was accepted")
+        print("PASS launch cwd may differ from workspace; wrong launch cwd is rejected")
 
 
 if __name__ == "__main__":

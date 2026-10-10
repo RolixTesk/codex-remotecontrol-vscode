@@ -1,0 +1,23 @@
+{
+  "validation": "Remote-WSL launch/thread cwd separation",
+  "realCodexStarted": false,
+  "networkUsed": false,
+  "checks": [
+    {
+      "command": "uv run --offline --no-project --with qrcode==8.2 python tests/check_pair_remote.py",
+      "runs": 1,
+      "passed": true
+    },
+    {
+      "command": "python3 tests/check_wsl_scope.py",
+      "runs": 1,
+      "passed": true
+    }
+  ],
+  "childLaunchCwdPreserved": true,
+  "onlyTargetThreadControllable": true,
+  "foreignThreadRejected": true,
+  "incorrectLaunchCwdRejected": true,
+  "defaultLaunchCwdPassed": true,
+  "newRealWslWrapperPendingReload": true
+}

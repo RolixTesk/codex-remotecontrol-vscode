@@ -1,0 +1,13 @@
+{
+  "completed": false,
+  "childPid": 52607,
+  "activeObserved": false,
+  "phoneTaskApplied": false,
+  "phoneSteerApplied": false,
+  "initialWriterPids": [
+    52607
+  ],
+  "initialTurnCount": 1,
+  "failedStage": "phone-task-and-steer",
+  "failureType": "TimeoutError"
+}

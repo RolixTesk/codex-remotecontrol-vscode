@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Transparent transport with optional disposable-workspace request routing."""
+"""Transparent transport with scoped observation or capture-free daily control."""
 
 import json
 import os
@@ -21,28 +21,33 @@ def main():
     config = json.loads(Path(__file__).with_suffix(".local.json").read_text())
     executable = config["realExecutable"]
     args = sys.argv[1:]
+    bridge = config.get("mode") == "bridge"
     try:
-        capture_here = Path.cwd().samefile(config["captureCwd"])
+        capture_here = bridge or Path.cwd().samefile(config.get("launchCwd", config["captureCwd"]))
     except OSError:
         capture_here = False
     if "app-server" not in args or not capture_here:
         os.execv(executable, [executable, *args])
 
-    # Raw bytes stay in a private Linux directory, including possible auth traffic.
+    # Daily mode keeps only process metadata and the private control socket.
     root = Path(config["captureRoot"])
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     run = root / f"{time.time_ns()}-{os.getpid()}"
     run.mkdir(mode=0o700)
-    captures = {}
-    for direction in ("stdin", "stdout"):
-        fd = os.open(run / f"{direction}.bin", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        captures[direction] = fd
+    captures = {"stdin": None, "stdout": None}
+    if not bridge:
+        for direction in captures:
+            captures[direction] = os.open(run / f"{direction}.bin", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     child = subprocess.Popen([executable, *args], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     metadata = {
         "wrapperPid": os.getpid(), "childPid": child.pid,
-        "realExecutable": executable, "argv": args, "cwd": str(Path.cwd()),
+        "realExecutable": executable, "cwd": str(Path.cwd()),
         "startedNs": time.time_ns(), "captureErrors": [],
     }
+    if bridge:
+        metadata["mode"] = "bridge"
+    else:
+        metadata["argv"] = args
     metadata_path = run / "process.json"
     metadata_fd = os.open(metadata_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(metadata_fd, "w") as f:
@@ -59,14 +64,14 @@ def main():
                 captures[direction] = None
 
     control = None
-    if config.get("control", False):
+    if bridge or config.get("control", False):
         from control import Control
 
         def write_frame(raw):
             write_all(child.stdin.fileno(), raw)
             capture("stdin", raw)
 
-        control = Control(run / "control.sock", Path.cwd(), child.pid, write_frame)
+        control = Control(run / "control.sock", None if bridge else config["captureCwd"], child.pid, write_frame)
 
     def forward_signal(signum, _frame):
         try:

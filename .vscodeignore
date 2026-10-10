@@ -1,0 +1,14 @@
+**
+!package.json
+!README.md
+!doc/README.md
+!doc/commands.md
+!extension/extension.js
+!extension/backend.js
+!scripts/deploy_backend.py
+!scripts/remote.py
+!scripts/pair_remote.py
+!scripts/probe_live.py
+!wrapper/codex-wrapper
+!wrapper/control.py
+!wrapper/protocol.py

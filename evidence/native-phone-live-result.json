@@ -1,0 +1,72 @@
+{
+  "userSelectedMode": "steer",
+  "childPid": 52607,
+  "sameChild": true,
+  "finalWriterPids": [
+    52607
+  ],
+  "observerTimedOut": true,
+  "observerActiveSnapshotMissing": true,
+  "turnCount": 2,
+  "initialTurnCount": 1,
+  "newTurnCount": 1,
+  "remoteStatus": "connected",
+  "markers": {
+    "phone-native.txt": true,
+    "phone-steer.txt": true
+  },
+  "turnInputs": [
+    {
+      "status": "completed",
+      "hasInitialPhoneInput": false,
+      "hasFollowupInput": false
+    },
+    {
+      "status": "completed",
+      "hasInitialPhoneInput": true,
+      "hasFollowupInput": true
+    }
+  ],
+  "sameTurnSteering": true,
+  "sameServerLifecycleNotifications": [
+    "turn/started",
+    "turn/completed",
+    "turn/started",
+    "turn/completed"
+  ],
+  "sameServerCommandOutputMarkers": [
+    "PHONE_RUNNING",
+    "PHONE_DONE"
+  ],
+  "phoneWritePassed": true,
+  "phoneFollowupPassed": true,
+  "distinctOrderedPhoneInputs": true,
+  "followupArrivedDuringSleepCommand": true,
+  "phoneTurnLifecycle": [
+    "turn/started",
+    "turn/completed"
+  ],
+  "commandOutputs": [
+    {
+      "exitCode": 127,
+      "runningMarker": false,
+      "doneMarker": false
+    },
+    {
+      "exitCode": 0,
+      "runningMarker": true,
+      "doneMarker": true
+    },
+    {
+      "exitCode": 0,
+      "runningMarker": false,
+      "doneMarker": false
+    }
+  ],
+  "backendBehavior": "second input accepted in the existing active turn",
+  "uiModeMapping": "user corrected selection to Steer; matches two ordered inputs in the same active turn",
+  "liveObserverEvidence": "timed out before the phone test; audit uses same-server capture and current writer lock",
+  "phoneSteerPassed": true,
+  "nativePhoneControlPassed": true,
+  "commandOutputEvidence": "both markers present in the completed command aggregatedOutput"
+}

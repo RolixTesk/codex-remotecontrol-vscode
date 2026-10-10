@@ -1,0 +1,10 @@
+{
+  "action": "disable",
+  "completed": true,
+  "childPid": 87840,
+  "status": "disabled",
+  "writerPids": [
+    87840
+  ],
+  "sameChild": true
+}

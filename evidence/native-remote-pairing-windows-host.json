@@ -1,0 +1,11 @@
+{
+  "action": "status",
+  "completed": true,
+  "childPid": 52607,
+  "status": "connected",
+  "claimed": true,
+  "writerPids": [
+    52607
+  ],
+  "sameChild": true
+}

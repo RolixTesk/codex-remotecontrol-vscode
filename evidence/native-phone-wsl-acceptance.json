@@ -1,0 +1,45 @@
+{
+  "completed": false,
+  "childPid": 87840,
+  "observer": "read-only; phone supplies every task, steer, approval and interrupt",
+  "initialWriterPids": [
+    87840
+  ],
+  "initialTurnCount": 2,
+  "activeObserved": true,
+  "approvalRequests": [
+    {
+      "alias": 1,
+      "method": "item/commandExecution/requestApproval",
+      "originalServerId": true
+    }
+  ],
+  "resolved": [
+    {
+      "requestAlias": 1,
+      "matchesObservedRequest": true
+    }
+  ],
+  "stdinResponses": [],
+  "approvalRequestCount": 1,
+  "matchingResolutionCount": 1,
+  "duplicateStdinResponses": false,
+  "allObservedApprovalsResolvedOnce": true,
+  "newTurnCount": 1,
+  "turnStatuses": [
+    "completed"
+  ],
+  "orderedDistinctInputs": false,
+  "firstCommandPassed": true,
+  "followupDuringFirstCommand": false,
+  "approvalMarkerCorrect": true,
+  "steerMarkerCorrect": false,
+  "stopRunningOutputObserved": false,
+  "stopDoneOutputObserved": false,
+  "interrupted": false,
+  "sameChild": true,
+  "finalWriterPids": [
+    87840
+  ],
+  "remoteStatus": "connected"
+}

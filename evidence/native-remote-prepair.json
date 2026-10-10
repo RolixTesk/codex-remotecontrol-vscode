@@ -1,0 +1,23 @@
+{
+  "stage": "before-pairing",
+  "pairingIssued": true,
+  "remoteEnableSent": true,
+  "captureSocketsAvailable": true,
+  "testThreadWriterPids": [
+    48024
+  ],
+  "writerCwd": "/mnt/d/Works/codex-remotecontrol-vscode",
+  "requiredWorkspace": "experiments/baseline",
+  "reason": "The new baseline window is instrumented but the old conversation remains owned by the parent-workspace server. Use a new UI-created disposable thread for the native phone experiment.",
+  "wrapperPid": 52597,
+  "testAppServerPid": 52607,
+  "testAppServerInitialized": true,
+  "targetLoadedOnTestServer": false,
+  "historyReadOnly": true,
+  "newPhoneTestVerified": true,
+  "newPhoneTestWriterPids": [
+    52607
+  ],
+  "remoteStatus": "connected",
+  "awaitingPhone": true
+}

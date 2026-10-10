@@ -1,0 +1,25 @@
+{
+  "phase": "Remote-WSL baseline and wrapper scope diagnosis",
+  "chatReady": true,
+  "source": "vscode",
+  "codexVersion": "0.160.0",
+  "originalWriterPids": [
+    79931
+  ],
+  "originalAppServerPid": 79931,
+  "extensionHostPid": 79883,
+  "remoteExtensionHost": true,
+  "extensionHostExecutable": "/home/rolix/.vscode-server/bin/07f806f999227108933c2e30515b26eecc1fda74/node",
+  "activationLogs": [
+    "/home/rolix/.vscode-server/data/logs/20261005T194623/exthost1/remoteexthost.log"
+  ],
+  "processCwd": "/mnt/d/Users/RolixTesk/AppData/Local/Programs/Microsoft VS Code",
+  "threadCwd": "/mnt/d/Works/codex-remotecontrol-vscode/experiments/wsl-baseline",
+  "cwdDiffers": true,
+  "controlSocketBeforeFix": false,
+  "fix": "optional launchCwd matches original process; captureCwd retains target thread scope",
+  "wrapperConfigBackup": "/home/rolix/.local/state/codex-remotecontrol/wrapper-before-launch-cwd-1791201306367842280.json",
+  "beforeConfigSha256": "98d384cf6ddd6ad2083139d847ef7ac99b70fe2760ae6f2a3135d90983b23fd6",
+  "reloadPending": true,
+  "nativePhoneRemoteWslPassed": false
+}

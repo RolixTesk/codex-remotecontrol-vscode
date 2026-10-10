@@ -1,0 +1,18 @@
+{
+  "completed": true,
+  "childPid": 52607,
+  "activeObserved": true,
+  "observer": "read-only; no interrupt injected",
+  "initialWriterPids": [
+    52607
+  ],
+  "newTurnCount": 1,
+  "turnStatuses": [
+    "interrupted"
+  ],
+  "sameChild": true,
+  "finalWriterPids": [
+    52607
+  ],
+  "remoteStatus": "connected"
+}
