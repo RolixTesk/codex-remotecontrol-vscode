@@ -64,7 +64,7 @@ python3 tests/check_pairing_qr.py
 
 发布者 ID 为 `RolixTesk`，扩展标识为 `RolixTesk.codex-live-remote`。Marketplace 中必须有同一 ID 的发布者并授予发布账号权限；GitHub 昵称和登录不代替 Marketplace 发布者身份。
 
-运行 `npm run package` 生成发布包。打包使用正常仓库、许可证和资源检查，将 README 相对链接重写到仓库的 `master` 分支。包内包含项目许可说明及第三方许可；项目沿用此前 `UNLICENSED` 的非开放源码选择。
+运行 `npm run package` 生成发布包。打包使用正常仓库、许可证和资源检查，将 README 相对链接重写到仓库的 `master` 分支。项目采用根目录 `LICENSE` 中的 Unlicense，打包时 `vsce` 将它命名为 `extension/LICENSE.txt`；内置 qrcode 保留上游 BSD 许可。
 
 在 [Marketplace 管理页](https://marketplace.visualstudio.com/manage/publishers/)选择 `RolixTesk`，点击 **New extension → Visual Studio Code** 上传 VSIX。已有同一扩展时选择 **Update**。如已在本机配置好发布凭据，也可用 `npx vsce publish --packagePath dist/codex-live-remote-0.1.10.vsix` 上传已检查的同一产物。
 

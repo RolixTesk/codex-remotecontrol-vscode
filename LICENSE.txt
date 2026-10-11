@@ -1,6 +1,0 @@
-Copyright (c) 2026 RolixTesk. All rights reserved.
-
-This project is not released under an open-source license.
-
-Third-party components retain their respective licenses. See
-scripts/vendor/README.md and scripts/vendor/qrcode/LICENSE.

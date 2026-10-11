@@ -32,7 +32,7 @@ def main():
         for name in DOCS:
             readme = readme.replace(f"]({name})", f"]({repository}/blob/master/{name})")
         assert package.read("extension/readme.md") == readme.encode(), "Stale README or broken Marketplace links"
-        assert package.read("extension/LICENSE.txt") == (ROOT / "LICENSE.txt").read_bytes(), "Stale license"
+        assert package.read("extension/LICENSE.txt") == (ROOT / "LICENSE").read_bytes(), "Stale license"
         manifest = json.loads(package.read("extension/package.json"))
         assert manifest == source, "Stale package manifest"
         xml = ElementTree.fromstring(package.read("extension.vsixmanifest"))

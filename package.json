@@ -79,7 +79,7 @@
   "scripts": {
     "package": "vsce package --out dist/codex-live-remote-0.1.10.vsix --githubBranch master --no-dependencies && python3 tests/check_vsix.py"
   },
-  "license": "SEE LICENSE IN LICENSE.txt",
+  "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "devDependencies": {
     "@vscode/vsce": "4.0.0"
