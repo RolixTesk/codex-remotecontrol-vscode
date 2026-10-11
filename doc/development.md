@@ -60,6 +60,16 @@ python3 tests/check_pairing_qr.py
 
 测试使用临时目录、fake app-server 和 Node mock；开发过程记录、验收数据、捕获和本地配置均不属于公开源码或 Release 资产。源码不依赖这些本地文件，VSIX 使用单文件白名单。
 
+## Marketplace 发布
+
+发布者 ID 为 `RolixTesk`，扩展标识为 `RolixTesk.codex-live-remote`。Marketplace 中必须有同一 ID 的发布者并授予发布账号权限；GitHub 昵称和登录不代替 Marketplace 发布者身份。
+
+运行 `npm run package` 生成发布包。打包使用正常仓库、许可证和资源检查，将 README 相对链接重写到仓库的 `master` 分支。包内包含项目许可说明及第三方许可；项目沿用此前 `UNLICENSED` 的非开放源码选择。
+
+在 [Marketplace 管理页](https://marketplace.visualstudio.com/manage/publishers/)选择 `RolixTesk`，点击 **New extension → Visual Studio Code** 上传 VSIX。已有同一扩展时选择 **Update**。如已在本机配置好发布凭据，也可用 `npx vsce publish --packagePath dist/codex-live-remote-0.1.10.vsix` 上传已检查的同一产物。
+
+更改 publisher 会更改扩展标识。升级时先卸载旧 `rolix.codex-live-remote`，保留原启动配置和恢复备份，再安装新包；不能同时运行两份扩展。此过程不需要恢复再重新配置 wrapper。发布要求见 [官方发布说明](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)。
+
 ## 支持边界
 
 当前支持 Ubuntu 本地 VS Code、Windows 本地 VS Code 通过 WSL 运行 Codex，以及 Remote-WSL，最低 VS Code 版本为 1.118。Python wrapper 使用 Linux 信号及 Unix socket，不支持 Windows 原生 codex.exe。原生 Remote 接口仍可能随官方版本改变，升级时应检查受影响的协议和资产。

@@ -8,7 +8,9 @@
 
 ## 安装与首次使用
 
-在 VS Code 扩展视图点击 `…` → **从 VSIX 安装…**，选择 `codex-live-remote-0.1.9.vsix`。Ubuntu 或 Windows 本地窗口安装到本地，Remote-WSL 窗口安装到 WSL。
+在 VS Code 扩展视图点击 `…` → **从 VSIX 安装…**，选择 `codex-live-remote-0.1.10.vsix`。Ubuntu 或 Windows 本地窗口安装到本地，Remote-WSL 窗口安装到 WSL。
+
+从 0.1.9 或更早版本升级时，先卸载发布者为 `rolix` 的旧扩展，保留已有 Codex 启动设置，再安装发布者为 `RolixTesk` 的新版。等任务结束后重载窗口即可继续使用。
 
 1. 按 `Ctrl+Shift+P`，运行 **Codex Remote: 配置远程控制**。
 2. 等当前任务结束，运行 **Developer: Reload Window**。

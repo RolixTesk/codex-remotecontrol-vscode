@@ -1,6 +1,6 @@
 # 命令说明
 
-适用于 Codex Live Remote 0.1.9。按 `Ctrl+Shift+P`，输入 `Codex Remote` 查找命令。
+适用于 Codex Live Remote 0.1.10。按 `Ctrl+Shift+P`，输入 `Codex Remote` 查找命令。
 
 ## 插件命令
 

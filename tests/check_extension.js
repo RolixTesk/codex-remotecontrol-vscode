@@ -547,8 +547,8 @@ async function checkNativeLinux() {
   try {
     Object.defineProperty(process, 'platform', { value: 'linux' });
     delete process.env.WSL_DISTRO_NAME;
-    const version = require(path.join(root, 'package.json')).version;
-    const packageRoot = `/home/native-user/.vscode/extensions/rolix.codex-live-remote-${version}`;
+    const { publisher, name, version } = require(path.join(root, 'package.json'));
+    const packageRoot = `/home/native-user/.vscode/extensions/${publisher}.${name}-${version}`;
     const officialRoot = '/home/native-user/.vscode/extensions/openai.chatgpt-26.1007.21434-linux-x64';
     const managed = '/home/native-user/.local/share/codex-remotecontrol/vscode/wrapper/codex-wrapper';
     const controller = '/home/native-user/.local/share/codex-remotecontrol/vscode/scripts/remote_backend.py';

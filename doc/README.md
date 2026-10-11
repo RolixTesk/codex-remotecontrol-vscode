@@ -1,6 +1,6 @@
 # 使用文档
 
-本文档对应 Codex Live Remote 0.1.9。
+本文档对应 Codex Live Remote 0.1.10。
 
 - [命令说明](commands.md)：各条命令的效果、适用时机及常见问题。
 - [项目介绍](../README.md)：安装要求与连接方式。

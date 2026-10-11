@@ -2,8 +2,27 @@
   "name": "codex-live-remote",
   "displayName": "Codex Live Remote",
   "description": "Use ChatGPT mobile to remotely control Codex in VS Code.",
-  "version": "0.1.9",
-  "publisher": "rolix",
+  "version": "0.1.10",
+  "publisher": "RolixTesk",
+  "author": {
+    "name": "RolixTesk",
+    "url": "https://github.com/RolixTesk"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RolixTesk/codex-remotecontrol-vscode.git"
+  },
+  "homepage": "https://github.com/RolixTesk/codex-remotecontrol-vscode/blob/master/README.md",
+  "bugs": {
+    "url": "https://github.com/RolixTesk/codex-remotecontrol-vscode/issues"
+  },
+  "keywords": [
+    "codex",
+    "chatgpt",
+    "remote-control",
+    "wsl",
+    "ubuntu"
+  ],
   "engines": {
     "vscode": "^1.118.0"
   },
@@ -58,9 +77,9 @@
     ]
   },
   "scripts": {
-    "package": "vsce package --out dist/codex-live-remote-0.1.9.vsix --allow-missing-repository --no-rewrite-relative-links --skip-license --no-dependencies && python3 tests/check_vsix.py"
+    "package": "vsce package --out dist/codex-live-remote-0.1.10.vsix --githubBranch master --no-dependencies && python3 tests/check_vsix.py"
   },
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE.txt",
   "private": true,
   "devDependencies": {
     "@vscode/vsce": "4.0.0"
