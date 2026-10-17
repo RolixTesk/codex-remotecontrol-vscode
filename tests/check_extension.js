@@ -49,7 +49,11 @@ function checkManifest() {
   assert.equal(commands.length, 6);
   assert.deepEqual(Object.fromEntries(commands.map(command => [command.command, command.title])), expected);
   assert.ok(commands.every(command => command.category === 'Codex Remote'));
-  console.log('PASS command manifest: six stable IDs with configure/start/pair/status/stop/restore titles');
+  const automatic = manifest.contributes.configuration.properties['codexRemote.autoConnect'];
+  assert.equal(automatic.type, 'boolean');
+  assert.equal(automatic.default, true, 'automatic Remote is enabled by default');
+  assert.equal(automatic.scope, 'application', 'automatic Remote follows the user, not workspace settings');
+  console.log('PASS command manifest: six stable command IDs/titles, automatic Remote boolean defaults on in user settings');
 }
 
 async function checkTransport() {
@@ -153,6 +157,9 @@ async function harness(options = {}) {
   const state = { global: options.global, updates: [], calls: [], picks: [...(options.picks || [])],
     information: [], errors: [], warnings: [], opened: [], copied: [], quickPicks: [], status: undefined,
     officialRoot: options.officialRoot || "/official space'中文",
+    officialActive: options.officialActive === true, autoConnect: options.autoConnect !== false,
+    instances: options.instances || [{ childPid: 101, cwd: '/backend cwd', active: false }],
+    timers: new Map(),
     workspaceReads: 0, authenticationReads: 0, wslSettingReads: 0,
     notifications: [], progress: { started: 0, completed: 0, active: 0 } };
   function notification(kind, args, result) {
@@ -178,7 +185,7 @@ async function harness(options = {}) {
     },
     async request(...args) {
       state.calls.push(['request', ...args]);
-      if (args[1] === 'list') return options.instances || [{ childPid: 101, cwd: '/backend cwd', active: false }];
+      if (args[1] === 'list') return options.list ? options.list(state) : state.instances;
       if (options.request) return options.request(...args);
       return { status: args[1] === 'disconnect' ? 'disabled' : 'connected', pairingPage: options.pairingPage || '/private/pairing.html' };
     },
@@ -206,6 +213,9 @@ async function harness(options = {}) {
     workspace: {
       get workspaceFolders() { state.workspaceReads++; throw new Error('unexpected workspace folder access'); },
       getConfiguration(namespace) {
+        if (namespace === 'codexRemote') return { get(key, fallback) {
+          assert.equal(key, 'autoConnect'); return state.autoConnect ?? fallback;
+        } };
         assert.equal(namespace, 'chatgpt');
         return {
           inspect(key) { assert.equal(key, 'cliExecutable'); return { globalValue: state.global }; },
@@ -231,19 +241,196 @@ async function harness(options = {}) {
       registerCommand(name, callback) { commands.set(name, callback); return { dispose() { commands.delete(name); } }; },
       executeCommand() { throw new Error('unexpected reload or other VS Code command'); },
     },
-    extensions: { getExtension(name) { assert.equal(name, 'openai.chatgpt'); return options.officialMissing ? undefined : { extensionPath: state.officialRoot }; } },
+    extensions: { getExtension(name) { assert.equal(name, 'openai.chatgpt'); return options.officialMissing ? undefined : { extensionPath: state.officialRoot, isActive: state.officialActive }; } },
   };
   const extension = load(path.join(root, 'extension/extension.js'), {
     vscode, './backend': { async backend(value) { state.calls.push(['backend', value]); return bridge; } },
+    'node:timers': {
+      setInterval(callback, delay) { const handle = {}; state.timers.set(handle, { callback, delay }); return handle; },
+      clearInterval(handle) { state.timers.delete(handle); },
+    },
   });
   const context = { extensionPath: options.extensionPath || "/package space'中文", subscriptions: [] };
   await extension.activate(context);
   await flushCallbacks();
   assert.deepEqual([...commands.keys()].sort(), ['connect', 'disconnect', 'enable', 'pair', 'restore', 'status'].map(name => `codexRemote.${name}`).sort());
-  assert.equal(state.calls.some(call => ['request', 'install'].includes(call[0])), false, 'activation never connects or enables');
+  if (!options.officialActive) assert.equal(state.calls.some(call => ['request', 'install'].includes(call[0])), false, 'inactive Codex never connects or enables');
   assert.deepEqual(state.updates, []);
   assert.equal(state.workspaceReads, 0);
-  return { state, bridge, context, extension, command: name => commands.get(`codexRemote.${name}`)() };
+  return { state, bridge, context, extension, command: name => commands.get(`codexRemote.${name}`)(),
+    async tick() {
+      for (const timer of state.timers.values()) timer.callback();
+      await flushCallbacks();
+    },
+    dispose() { for (const subscription of context.subscriptions) subscription.dispose(); },
+  };
+}
+
+async function checkAutoConnect() {
+  const managed = '/stable/wrapper/codex-wrapper';
+  const configured = { officialActive: true, global: managed,
+    request: async () => ({ status: 'connected', paired: true }) };
+  const requests = app => app.state.calls.filter(call => call[0] === 'request');
+  const automatic = app => requests(app).filter(call => call[2] === 'auto-connect');
+  const app = await harness(configured);
+  assert.deepEqual(app.state.calls.filter(call => call[0] === 'request').map(call => call.slice(2)),
+    [['list'], ['auto-connect', 101]], 'already paired Codex starts Remote after activation');
+  assert.match(app.state.status.text, /已启动/);
+  assert.deepEqual([...app.state.timers.values()].map(timer => timer.delay), [5000]);
+  await app.tick();
+  await app.tick();
+  assert.equal(automatic(app).length, 1, 'automatic start is attempted once per backend');
+  assert.deepEqual(app.state.progress, { started: 0, completed: 0, active: 0 });
+  assert.deepEqual(app.state.information, [], 'automatic success stays quiet');
+  assert.equal(app.state.workspaceReads, 0);
+  assert.equal(app.state.authenticationReads, 0);
+  assert.deepEqual(app.state.updates, []);
+
+  const delayed = await harness({ ...configured, officialActive: false });
+  await delayed.tick();
+  assert.equal(requests(delayed).length, 0, 'does not activate official Codex');
+  delayed.state.officialActive = true;
+  await delayed.tick();
+  assert.equal(automatic(delayed).length, 1, 'detects official Codex activated later');
+  const lateBackend = await harness({ ...configured, instances: [] });
+  assert.equal(automatic(lateBackend).length, 0);
+  lateBackend.state.instances = [{ childPid: 201 }];
+  await lateBackend.tick();
+  assert.equal(automatic(lateBackend)[0][3], 201, 'discovers a backend that appears after activation');
+
+  const unpaired = await harness({ ...configured,
+    request: async () => ({ status: 'disabled', paired: false }) });
+  await unpaired.tick();
+  await unpaired.tick();
+  assert.equal(automatic(unpaired).length, 1, 'unpaired backend is not repeatedly retried');
+  assert.deepEqual(unpaired.state.information, []);
+  assert.deepEqual(unpaired.state.warnings, []);
+  assert.deepEqual(unpaired.state.opened, []);
+  let pendingChecks = 0;
+  const pending = await harness({ ...configured, request: async () => ++pendingChecks < 3
+    ? { status: 'disabled', paired: false, pairingPending: true }
+    : { status: 'connected', paired: true } });
+  await pending.tick();
+  await pending.tick();
+  await pending.tick();
+  assert.equal(automatic(pending).length, 3, 'pending manual pairing can be checked until confirmed');
+  assert.match(pending.state.status.text, /已启动/);
+
+  app.state.instances = [{ childPid: 202 }];
+  await app.tick();
+  assert.deepEqual(automatic(app).map(call => call[3]), [101, 202], 'a restarted backend receives a new attempt');
+  app.state.instances = [{ childPid: 101 }];
+  await app.tick();
+  assert.equal(automatic(app).length, 2, 'rediscovery does not replay a previous backend attempt');
+
+  const disabled = await harness({ ...configured, autoConnect: false });
+  await disabled.tick();
+  assert.equal(requests(disabled).length, 0);
+  disabled.state.autoConnect = true;
+  await disabled.tick();
+  assert.equal(automatic(disabled).length, 1, 'configuration takes effect without reload');
+  disabled.state.autoConnect = false;
+  disabled.state.instances = [{ childPid: 303 }];
+  const beforeDisabled = requests(disabled).length;
+  await disabled.tick();
+  assert.equal(requests(disabled).length, beforeDisabled);
+
+  const stopped = await harness({ ...configured, request: async (_controller, action) =>
+    ({ status: action === 'disconnect' ? 'disabled' : 'connected', paired: true }) });
+  await stopped.command('disconnect');
+  stopped.state.instances = [{ childPid: 404 }];
+  const afterStop = requests(stopped).length;
+  await stopped.tick();
+  assert.equal(requests(stopped).length, afterStop, 'manual stop pauses automatic connections in this window');
+  await stopped.command('connect');
+  stopped.state.instances = [{ childPid: 405 }];
+  await stopped.tick();
+  assert.equal(automatic(stopped).at(-1)[3], 405, 'manual start resumes automatic detection');
+
+  const restored = await harness(configured);
+  await restored.command('restore');
+  const afterRestore = requests(restored).length;
+  restored.state.global = managed;
+  restored.state.instances = [{ childPid: 505 }];
+  await restored.tick();
+  assert.equal(requests(restored).length, afterRestore, 'restore also pauses automatic connections');
+  const changed = await harness({ ...configured, global: '/external/codex' });
+  await changed.tick();
+  assert.equal(requests(changed).length, 0, 'external executable settings remain unmanaged');
+  changed.state.global = managed;
+  await changed.tick();
+  assert.equal(automatic(changed).length, 1);
+  changed.state.global = '/external/new-codex';
+  const beforeChange = requests(changed).length;
+  await changed.tick();
+  assert.equal(requests(changed).length, beforeChange, 'external changes suppress later automatic attempts');
+
+  const multiple = await harness({ ...configured, instances: [{ childPid: 601 }, { childPid: 602 }] });
+  await multiple.tick();
+  assert.equal(automatic(multiple).length, 0, 'ambiguous backends require manual selection');
+  assert.equal(multiple.state.quickPicks.length, 0, 'background detection never opens a picker');
+  multiple.state.instances = [{ childPid: 602 }];
+  await multiple.tick();
+  assert.equal(automatic(multiple)[0][3], 602);
+
+  for (const options of [{ installed: false }, { officialMissing: true }, { remoteName: 'ssh-remote' }]) {
+    const excluded = await harness({ ...configured, ...options });
+    await excluded.tick();
+    assert.equal(requests(excluded).length, 0, 'unconfigured, missing official, or unsupported hosts do not connect');
+    assert.deepEqual(excluded.state.updates, []);
+  }
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const native = await harness({ ...configured, runInWsl: false, remoteName: undefined });
+    await native.tick();
+    assert.equal(requests(native).length, 0, 'Windows requires an enabled WSL backend');
+  } finally { Object.defineProperty(process, 'platform', platform); }
+
+  const work = deferred();
+  const busy = await harness({ ...configured, request: () => work.promise });
+  await busy.tick();
+  assert.equal(automatic(busy).length, 1, 'overlapping timer events do not duplicate in-flight work');
+  assert.deepEqual(busy.state.progress, { started: 0, completed: 0, active: 0 });
+  work.resolve({ status: 'connected', paired: true });
+  await flushCallbacks();
+  const manualWork = deferred();
+  const manualBusy = await harness({ ...configured, officialActive: false,
+    request: (_controller, action) => action === 'connect' ? manualWork.promise : { status: 'connected', paired: true } });
+  const connecting = manualBusy.command('connect');
+  await flushCallbacks();
+  manualBusy.state.officialActive = true;
+  await manualBusy.tick();
+  assert.equal(automatic(manualBusy).length, 0, 'background detection waits for an active manual operation');
+  manualWork.resolve({ status: 'connected' });
+  await connecting;
+  await manualBusy.tick();
+  assert.equal(automatic(manualBusy).length, 1);
+
+  const failed = await harness({ ...configured, request: async () => { throw new Error('synthetic automatic failure'); } });
+  await failed.tick();
+  await failed.tick();
+  assert.equal(automatic(failed).length, 1, 'a failed backend attempt is not replayed');
+  assert.equal(failed.state.warnings.length, 1);
+  assert.match(failed.state.warnings[0], /状态/);
+  assert.deepEqual(failed.state.errors, []);
+
+  const disposed = await harness(configured);
+  const staleTick = [...disposed.state.timers.values()][0].callback;
+  disposed.dispose();
+  assert.equal(disposed.state.timers.size, 0, 'dispose clears the timer');
+  const afterDispose = requests(disposed).length;
+  disposed.state.instances = [{ childPid: 701 }];
+  await staleTick();
+  await flushCallbacks();
+  assert.equal(requests(disposed).length, afterDispose, 'a queued callback cannot act after dispose');
+  const listing = deferred();
+  const disposeDuringList = await harness({ ...configured, list: () => listing.promise });
+  disposeDuringList.dispose();
+  listing.resolve([{ childPid: 702 }]);
+  await flushCallbacks();
+  assert.equal(automatic(disposeDuringList).length, 0, 'disposal while discovering does not start Remote');
+  console.log('PASS automatic Remote: default detection, late Codex/backend, pairing prerequisite and pending confirmation, once per PID, setting/host guards, manual pause/resume, busy exclusivity, quiet success, one failure notice, disposal');
 }
 
 async function checkSettings() {
@@ -284,7 +471,7 @@ async function checkSettings() {
     assert.equal(restore.state.global, undefined);
     assert.deepEqual(restore.state.errors, []);
   } finally { Object.defineProperty(process, 'platform', platform); }
-  console.log('PASS activation/settings: six commands, no automatic enable/connect, exact Global backups/restore, external-change refusal, deactivate preserves config');
+  console.log('PASS activation/settings: inactive Codex does not connect, exact Global backups/restore, external-change refusal, deactivate preserves config');
 }
 
 async function checkCommands() {
@@ -537,7 +724,7 @@ async function checkMaintenance() {
   await unreadable.command('restore');
   assert.equal(unreadable.state.global, backup.value);
   assert.deepEqual(unreadable.state.errors, []);
-  console.log('PASS managed maintenance: activation/connect/pair refresh current official path, no settings/reload/auto-connect, preserve backup and external settings, status/disconnect/restore skip maintenance, failures keep restore usable');
+  console.log('PASS managed maintenance: activation/connect/pair refresh current official path, preserve backup/external settings, inactive Codex stays disconnected, status/disconnect/restore skip maintenance, failures keep restore usable');
 }
 
 async function checkNativeLinux() {
@@ -623,6 +810,10 @@ async function checkNativeLinux() {
 }
 
 (async () => {
+  if (process.argv.includes('--auto-connect')) {
+    await checkAutoConnect();
+    return;
+  }
   if (process.argv.includes('--linux-only')) {
     await checkNativeLinux();
     return;
@@ -654,5 +845,6 @@ async function checkNativeLinux() {
   await checkNotificationLifecycle();
   await checkPairingCopy();
   await checkMaintenance();
+  await checkAutoConnect();
   await checkNativeLinux();
 })().catch(error => { console.error(error); process.exitCode = 1; });

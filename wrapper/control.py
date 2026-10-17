@@ -12,7 +12,7 @@ from protocol import JsonlReader, same_directory
 
 METHODS = {"thread/read", "turn/steer", "remoteControl/status/read",
            "remoteControl/enable", "remoteControl/disable",
-           "remoteControl/pairing/start", "remoteControl/pairing/status"}
+           "remoteControl/pairing/start", "remoteControl/pairing/status", "remoteControl/client/list"}
 
 
 def error(message):
@@ -107,6 +107,11 @@ class Control:
                 and (set(params) != {"pairingCode"} or not isinstance(params["pairingCode"], str)
                      or not params["pairingCode"])):
             return error("Pairing status requires the issued pairingCode")
+        if (method == "remoteControl/client/list"
+                and (set(params) != {"environmentId", "limit"}
+                     or not isinstance(params["environmentId"], str) or not params["environmentId"]
+                     or type(params["limit"]) is not int or params["limit"] != 1)):
+            return error("Client lookup requires environmentId and limit=1")
         request_id = "__codex_bridge__/" + uuid.uuid4().hex
         waiter = queue.Queue(maxsize=1)
         with self.lock:

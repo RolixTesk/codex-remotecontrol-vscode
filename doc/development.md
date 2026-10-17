@@ -14,7 +14,7 @@
 2. wrapper 以原参数、环境和目录启动官方扩展自带的 Codex binary，转发 stdio、stderr、信号和退出状态。日常 bridge 模式只保留私有 socket 和进程元数据，不捕获聊天流量。
 3. `wrapper/control.py` 观察官方客户端的 initialize 和协议生命周期，复用这个 app-server 的 stdin。原客户端请求继续透传；桥接请求使用独立 ID，桥接回复只返回给 socket 调用者。
 4. 插件命令经过 `extension/backend.js` 调用 `scripts/remote_backend.py`，通过 stdin JSON 传递操作、PID 和是否打开配对页，stdout 返回 JSON 结果。Windows 宿主用显式 `wsl.exe -d <distro> --exec` 执行 Linux Python；Ubuntu 本地与 Remote-WSL 宿主直接执行 Python，原样使用 Linux 路径。argv 不经 shell 重解析，配置快照经 stdin JSON 传递。
-5. `scripts/control_client.py` 通过私有 socket 发送 JSONL，后端 worker 在操作前后校验后端身份，并调用原生 Remote 的 status/read、ephemeral enable/disable、pairing/start/status。
+5. `scripts/control_client.py` 通过私有 socket 发送 JSONL，后端 worker 在操作前后校验后端身份，并调用原生 Remote 的 status/read、ephemeral enable/disable、pairing/start/status 和只读 client/list。
 6. 官方 app-server 使用已有 ChatGPT 登录建立官方 Remote 连接。手机经 ChatGPT 的配对授权和原生 Remote 协议操作聊天，结果同步回原 VS Code 客户端。
 7. `scripts/pair_remote.py` 将配对响应保存到私有文件，并使用内置 qrcode 生成本地 SVG/HTML。二维码指向官方配对 URL；浏览器与通知复用同一生成页面。
 
@@ -24,7 +24,13 @@
 
 ## 激活与配置
 
-插件声明 `onStartupFinished`，在窗口启动后注册命令、显示状态栏并维护受管理的接入。连接由用户命令启动。该事件不保证本插件与官方扩展的激活顺序，也不表示 app-server 已就绪，实例发现以实际 initialized 状态为准。
+插件声明 `onStartupFinished`，在窗口启动后注册命令、显示状态栏并维护受管理的接入。默认开启 `codexRemote.autoConnect`：立即检测一次，之后每 5 秒检测官方扩展激活状态及 initialized 后端。该事件不保证两个插件的激活顺序，后台检测不主动激活官方扩展、不自动首次安装或重启 Codex。
+
+只有当前 Global 设置仍指向托管 wrapper、仅一个后端可选且官方 `remoteControl/client/list` 确认有授权客户端时，内部 `auto-connect` 动作才复用原连接流程。client/list 只允许 `environmentId` 与 `limit=1`，不开放 revoke。多个实例交由手动命令选择，自动成功只更新状态栏，不弹通知或常驻进度。
+
+`phone-pairing.json` 位于稳定运行目录，权限 0600，仅保存 installationId、environmentId 和 paired 布尔值。connect/pair/status 记住环境，自动检测再向当前登录的原后端确认授权；申请二维码不表示授权。配对码尚在有效期时继续只读检查，确认授权后记住结果。每次后端启动仍重新查询官方列表，撤销的设备不会触发自动启动；不读取或复制登录凭据。旧版未留下环境记录时，手动启动一次即可迁移，无需重新配对。
+
+每个 PID 自动尝试一次；失败可能涉及未知写结果，不自动重放。等待扫码期间只重复授权查询。手动停止或恢复启动设置会暂停本窗口自动连接，手动启动/配对/配置可恢复，重开窗口恢复默认策略。自动动作复用 busy 互斥，销毁时清理计时器。
 
 稳定运行文件位于 `~/.local/share/codex-remotecontrol/vscode/`。首次配置由 VS Code 配置 API 将 Global `chatgpt.cliExecutable` 指向稳定 wrapper，原值保存在 `settings-before-plugin.json`；恢复命令仅在当前设置仍等于受管理 wrapper 时还原它。
 
@@ -50,6 +56,8 @@
 
 ```sh
 node tests/check_extension.js
+python3 tests/check_auto_connect.py
+python3 tests/check_control.py
 python3 tests/check_control_client.py
 python3 tests/check_daily_remote.py --backend-lifecycle
 python3 tests/check_deploy_backend.py
@@ -66,7 +74,7 @@ python3 tests/check_pairing_qr.py
 
 运行 `npm run package` 生成发布包。打包使用正常仓库、许可证和资源检查，将 README 相对链接重写到仓库的 `master` 分支。项目采用根目录 `LICENSE` 中的 Unlicense，打包时 `vsce` 将它命名为 `extension/LICENSE.txt`；内置 qrcode 保留上游 BSD 许可。
 
-在 [Marketplace 管理页](https://marketplace.visualstudio.com/manage/publishers/)选择 `RolixTesk`，点击 **New extension → Visual Studio Code** 上传 VSIX。已有同一扩展时选择 **Update**。如已在本机配置好发布凭据，也可用 `npx vsce publish --packagePath dist/codex-live-remote-0.1.10.vsix` 上传已检查的同一产物。
+在 [Marketplace 管理页](https://marketplace.visualstudio.com/manage/publishers/)选择 `RolixTesk`，点击 **New extension → Visual Studio Code** 上传 VSIX。已有同一扩展时选择 **Update**。如已在本机配置好发布凭据，也可用 `npx vsce publish --packagePath dist/codex-live-remote-0.1.11.vsix` 上传已检查的同一产物。
 
 更改 publisher 会更改扩展标识。升级时先卸载旧 `rolix.codex-live-remote`，保留原启动配置和恢复备份，再安装新包；不能同时运行两份扩展。此过程不需要恢复再重新配置 wrapper。发布要求见 [官方发布说明](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)。
 

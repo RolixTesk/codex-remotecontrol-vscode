@@ -68,6 +68,8 @@ for raw in sys.stdin.buffer:
         result.update(pairingCode="SYNTHETIC_PAIRING_CODE", token="SYNTHETIC_PAIRING_TOKEN")
     elif method == "remoteControl/pairing/status":
         result.update(status="paired", pairingCode=params["pairingCode"])
+    elif method == "remoteControl/client/list":
+        result.update(data=[{"clientId": "SYNTHETIC_CLIENT"}], nextCursor=None)
     elif method and method.startswith("remoteControl/"):
         result["status"] = "enabled" if method == "remoteControl/enable" else "disabled"
     emit({"id": message["id"], "result": result})
@@ -225,6 +227,13 @@ def main():
                 ("remoteControl/pairing/status", {"pairingCode": True}),
                 ("remoteControl/pairing/status", {"pairingCode": "SYNTHETIC_PAIRING_CODE", "extra": True}),
                 ("remoteControl/pairing/status", []),
+                ("remoteControl/client/list", {}),
+                ("remoteControl/client/list", {"environmentId": "", "limit": 1}),
+                ("remoteControl/client/list", {"environmentId": 123, "limit": 1}),
+                ("remoteControl/client/list", {"environmentId": "environment-a", "limit": True}),
+                ("remoteControl/client/list", {"environmentId": "environment-a", "limit": 2}),
+                ("remoteControl/client/list", {"environmentId": "environment-a", "limit": 1, "cursor": "extra"}),
+                ("remoteControl/client/revoke", {"environmentId": "environment-a", "clientId": "SYNTHETIC_CLIENT"}),
             ]:
                 assert "error" in call(method, params), f"unexpectedly allowed {method} {params}"
             assert received.read_bytes() == before, "rejected controller request reached child"
@@ -247,6 +256,11 @@ def main():
                                        "pairingCode": "SYNTHETIC_PAIRING_CODE"}
             no_stdout()
             print("PASS pairing stays on same child with private IDs/credentials; invalid parameters never reach child")
+
+            clients = call("remoteControl/client/list", {"environmentId": "environment-a", "limit": 1})
+            assert clients["result"] == {"childPid": child_pid, "data": [{"clientId": "SYNTHETIC_CLIENT"}], "nextCursor": None}
+            no_stdout()
+            print("PASS authorized-client lookup stays private; malformed lookup and revoke never reach child")
 
             send({"id": 13, "method": "test/approval"})
             approval = read_message()

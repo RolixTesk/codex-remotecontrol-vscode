@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import webbrowser
 
 from pair_remote import private_json, write_pairing_page
@@ -64,6 +65,34 @@ def check_other_connections(target):
             raise UserError(f"另一个 Codex（{status['childPid']}）已连接。请先断开，再连接此实例。")
 
 
+def remember_phone(remote, paired=None):
+    if not remote.get("installationId") or not remote.get("environmentId"):
+        return
+    path = PROJECT / "phone-pairing.json"
+    record = {key: remote[key] for key in ("installationId", "environmentId")}
+    previous = json.loads(path.read_text()) if path.exists() else {}
+    if paired is None:
+        paired = previous.get("paired", False) if all(previous.get(k) == v for k, v in record.items()) else False
+    record["paired"] = paired
+    private_json(path, record)
+
+
+def has_paired_phone(target, remote):
+    path = PROJECT / "phone-pairing.json"
+    record = json.loads(path.read_text()) if path.exists() else {}
+    environment = remote.get("environmentId") or (
+        record.get("environmentId") if record.get("installationId") == remote.get("installationId") else None)
+    if not environment or not remote.get("installationId"):
+        return False
+    clients = result(call(target["socket"], "remoteControl/client/list", {
+        "environmentId": environment, "limit": 1,
+    }))
+    paired = bool(clients["data"])
+    validate(target)
+    remember_phone(dict(remote, environmentId=environment), paired)
+    return paired
+
+
 def operate(action, target):
     validate(target)
     path = target["socket"]
@@ -72,7 +101,13 @@ def operate(action, target):
     enabled_here = False
     report = {"action": action, "childPid": target["childPid"]}
     try:
-        if action in ("connect", "pair"):
+        if action == "auto-connect":
+            report["paired"] = has_paired_phone(target, remote)
+            state_path = folder / "state.json"
+            state = json.loads(state_path.read_text()) if state_path.exists() else {}
+            report["pairingPending"] = (state.get("childPid") == target["childPid"]
+                                        and state.get("pairing", {}).get("expiresAt", 0) > time.time())
+        if action in ("connect", "pair", "auto-connect") and (action != "auto-connect" or report["paired"]):
             if remote["status"] == "disabled":
                 check_other_connections(target)
                 enabled_here = True
@@ -100,6 +135,8 @@ def operate(action, target):
                 except RuntimeError:
                     report["pairingStatus"] = "expired-or-unavailable"
         validate(target)
+        if action in ("connect", "pair", "status"):
+            remember_phone(remote)
         report["status"] = remote["status"]
         return report
     except Exception:
@@ -131,7 +168,7 @@ def main(request=None):
         if request is None:
             request = json.load(sys.stdin)
         action = request["action"]
-        if action not in ("list", "connect", "pair", "status", "disconnect"):
+        if action not in ("list", "connect", "pair", "status", "disconnect", "auto-connect"):
             raise UserError("未知远程控制操作。")
         config = json.loads((PROJECT / "wrapper/codex-wrapper.local.json").read_text())
         found = discover(Path(config["captureRoot"]), request.get("pid"))
